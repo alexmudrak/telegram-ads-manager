@@ -1,5 +1,6 @@
 use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, web};
+use dotenv::dotenv;
 use futures::future::join_all;
 use log::{error, info};
 use reqwest::Client;
@@ -8,8 +9,9 @@ use select::predicate::{Class, Name, Predicate};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use dotenv::dotenv;
 use std::env;
+use std::fs;
+use std::path::Path;
 
 #[derive(Deserialize)]
 struct ChannelRequest {
@@ -53,16 +55,34 @@ impl Default for ApiResponse {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Chat {
     id: i64,
     username: String,
+    description: String,
 }
 
 #[derive(Deserialize)]
 struct ApiChatResponse {
     ok: bool,
     result: Option<Chat>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ChannelDatabase {
+    channels: Vec<Chat>,
+}
+
+fn load_channels_from_file(file_path: &str) -> Result<ChannelDatabase, String> {
+    let data = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+    let db: ChannelDatabase = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+    Ok(db)
+}
+
+fn save_channels_to_file(file_path: &str, db: &ChannelDatabase) -> Result<(), String> {
+    let data = serde_json::to_string_pretty(db).map_err(|e| e.to_string())?;
+    fs::write(file_path, data).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn extract_subscribers(cb_item: &str) -> String {
@@ -136,10 +156,51 @@ async fn get_category(client: &Client, cb_item: &str) -> Result<String, String> 
     }
 }
 
-async fn get_channels_id(client: &Client, channels: &str) -> Result<String, String> {
+async fn fetch_channel_info(
+    client: &Client,
+    channel_name: &str,
+) -> Result<(i64, String, String), String> {
     let bot_token = env::var("APP_TELEGRAM_BOT_TOKEN").expect("APP_TELEGRAM_BOT_TOKEN not set");
+    let url = format!(
+        "https://api.telegram.org/bot{}/getChat?chat_id=@{}",
+        bot_token, channel_name
+    );
+
+    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+
+    if response.status().is_success() {
+        let api_response: ApiChatResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if api_response.ok {
+            if let Some(chat) = api_response.result {
+                let clean_id = chat
+                    .id
+                    .to_string()
+                    .strip_prefix("-100")
+                    .unwrap_or(&chat.id.to_string())
+                    .to_string();
+                return Ok((
+                    clean_id.parse().unwrap_or_default(),
+                    chat.username,
+                    chat.description,
+                ));
+            } else {
+                return Err("Channel not found".to_string());
+            }
+        } else {
+            return Err("API response error".to_string());
+        }
+    } else {
+        return Err(format!("Failed request: {}", response.status()));
+    }
+}
+
+async fn get_channels_id(client: &Client, channels: &str) -> Result<String, String> {
+    let file_path = "channels.json";
     let mut channels_with_ids = vec![];
     let channels_list: Vec<&str> = channels.split(',').collect();
+    let mut db =
+        load_channels_from_file(file_path).unwrap_or_else(|_| ChannelDatabase { channels: vec![] });
 
     for channel in channels_list {
         let channel_name = channel
@@ -148,36 +209,31 @@ async fn get_channels_id(client: &Client, channels: &str) -> Result<String, Stri
             .replace("/", "")
             .replace(" ", "");
 
-        info!("TEST: {:?}", channel_name);
+        info!("Processing channel: {:?}", channel_name);
 
-        let url = format!(
-            "https://api.telegram.org/bot{}/getChat?chat_id=@{}",
-            bot_token, channel_name
-        );
-
-        let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
-
-        if response.status().is_success() {
-            let api_response: ApiChatResponse = response.json().await.map_err(|e| e.to_string())?;
-
-            if api_response.ok {
-                if let Some(chat) = api_response.result {
-                    let id_string = chat.id.to_string();
-                    let clean_id = id_string
-                        .strip_prefix("-100")
-                        .unwrap_or(&id_string)
-                        .to_string();
-
-                    channels_with_ids.push(clean_id);
-                } else {
-                    eprintln!("Channel not found: {}", channel_name);
-                }
-            } else {
-                return Err("API response error".to_string());
-            }
+        if let Some(existing_channel) = db.channels.iter().find(|c| c.username == channel_name) {
+            channels_with_ids.push(existing_channel.id.to_string());
+            info!("Found existing channel: {}", existing_channel.username);
         } else {
-            return Err(format!("Failed request: {}", response.status()));
+            match fetch_channel_info(client, &channel_name).await {
+                Ok((channel_id, username, description)) => {
+                    let new_channel = Chat {
+                        id: channel_id,
+                        username: username.to_string(),
+                        description: description.to_string(),
+                    };
+                    db.channels.push(new_channel);
+                    channels_with_ids.push(channel_id.to_string());
+                }
+                Err(e) => {
+                    eprintln!("Error getting channel info for {}: {}", channel_name, e);
+                }
+            }
         }
+    }
+
+    if let Err(e) = save_channels_to_file(file_path, &db) {
+        return Err(format!("Error saving channels: {}", e));
     }
 
     Ok(channels_with_ids.join(";"))
