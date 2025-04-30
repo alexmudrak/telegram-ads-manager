@@ -81,6 +81,12 @@ struct UpdateCategory {
     category: String,
 }
 
+#[derive(Deserialize)]
+struct GenerateAdRequest {
+    channels: String,
+    product_description: String,
+}
+
 fn load_available_categories() -> Vec<String> {
     dotenv().ok();
     let categories = env::var("APP_AVAILABLE_CATEGORIES").unwrap_or_default();
@@ -154,7 +160,10 @@ async fn fetch_chat_category(client: &Client, data: &str) -> Result<String, Stri
         if let Some(choice) = response_json["choices"].as_array().and_then(|c| c.get(0)) {
             if let Some(content) = choice["message"]["content"].as_str() {
                 let category = content.to_lowercase();
-                if available_categories.iter().any(|cat| cat.to_lowercase() == category) {
+                if available_categories
+                    .iter()
+                    .any(|cat| cat.to_lowercase() == category)
+                {
                     return Ok(category);
                 } else {
                     let err_msg = format!(
@@ -475,6 +484,90 @@ async fn update_category(req: web::Json<UpdateCategory>, id: web::Path<String>) 
 
     HttpResponse::Ok().finish()
 }
+async fn fetch_ad_message(
+    client: &Client,
+    channels_descriptions: &str,
+    product_desctiption: &str,
+) -> Result<String, String> {
+    let endpoint = "https://api.openai.com/v1/chat/completions";
+    let api_key = env::var("APP_OPENAI_API_KEY").expect("APP_OPENAI_API_KEY not set");
+
+    let request_text = format!(
+        "создай рекламное сообщение для каналов у которых описание ```{}```. Продукт, который будет рекламироваться {}. Используй небольшое количество эмоджи для привлечения внимания. Сообщение не должно быть больше 160 символов и не должно содержать новых строк!",
+        channels_descriptions, product_desctiption,
+    );
+
+    let request_body = json!({
+        "model": "gpt-4o-mini",
+        "messages": [{
+            "role": "user",
+            "content": &request_text,
+        }],
+        "max_tokens": 160,
+    });
+
+    let response = client
+        .post(endpoint)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status().is_success() {
+        let response_json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+
+        if let Some(choice) = response_json["choices"].as_array().and_then(|c| c.get(0)) {
+            if let Some(content) = choice["message"]["content"].as_str() {
+                return Ok(content.to_string());
+            }
+        }
+        let err_msg = "Failed to extract category from response.".to_string();
+        error!("{}", err_msg);
+        return Err(err_msg);
+    } else {
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        let err_msg = format!("OpenAI API response error: {:?}", error_text);
+        error!("{}", err_msg);
+        return Err(err_msg);
+    }
+}
+async fn get_ad_message(
+    client: web::Data<Client>,
+    req: web::Json<GenerateAdRequest>,
+) -> HttpResponse {
+    let file_path = "channels.json";
+    let db = match load_channels_from_file(file_path) {
+        Ok(db) => db,
+        Err(err) => return HttpResponse::InternalServerError().body(err),
+    };
+
+    let mut found_descriptions = Vec::new();
+
+    let product_desc = &req.product_description;
+    let channels_names = req
+        .channels
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect::<Vec<String>>();
+
+    for channel_name in channels_names {
+        if let Some(channel) = db.channels.iter().find(|c| c.username == channel_name) {
+            if let Some(description) = &channel.description {
+                found_descriptions.push(description.clone());
+            }
+        }
+    }
+
+    match fetch_ad_message(&client, &found_descriptions.join(", "), &product_desc).await {
+        Ok(data) => HttpResponse::Ok().json(json!({"ad_message": data})),
+        Err(e) => HttpResponse::InternalServerError().body(e),
+    }
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -501,6 +594,7 @@ async fn main() -> std::io::Result<()> {
                 "/api/channels/{id}/category",
                 web::put().to(update_category),
             )
+            .route("/api/generate-ad", web::post().to(get_ad_message))
     })
     .bind("127.0.0.1:8080")?
     .run()
