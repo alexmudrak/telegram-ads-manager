@@ -6,7 +6,9 @@ function App() {
   const [stelToken, setStelToken] = useState('');
   const [channel, setChannel] = useState('');
   const [channels, setChannels] = useState<any[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [generatedLinks, setGeneratedLinks] = useState('');
 
   useEffect(() => {
     const storedHash = localStorage.getItem('telegram_hash');
@@ -26,6 +28,22 @@ function App() {
     localStorage.setItem('stel_token', stelToken);
     localStorage.setItem('channel', channel);
   }, [hash, stelSsid, stelToken, channel]);
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const fetchCategories = async () => {
+    const response = await fetch('http://127.0.0.1:8080/api/categories');
+    if (!response.ok) {
+      console.error(
+        `Ошибка при загрузке категорий: ${response.status} ${response.statusText}`,
+      );
+      return;
+    }
+    const data = await response.json();
+    setCategories(data);
+  };
 
   const fetchSimilarChannels = async () => {
     if (!hash || !stelSsid || !stelToken || !channel) {
@@ -56,6 +74,64 @@ function App() {
 
     const data = await response.json();
     setChannels(data);
+  };
+
+  const addChannelUsername = (username: string) => {
+    setChannel((prev) => (prev ? `${prev}, ${username}` : username));
+  };
+
+  const updateCategory = async (channelId: string, newCategory: string) => {
+    const response = await fetch(
+      `http://127.0.0.1:8080/api/channels/${channelId}/category`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ category: newCategory }),
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        `Ошибка при обновлении категории: ${response.status} ${response.statusText}`,
+      );
+    }
+  };
+
+  const generateAdMessage = async () => {
+    const response = await fetch('http://127.0.0.1:8080/api/generate-ad', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        channels: channel,
+        productDescription: 'Описание рекламируемого продукта',
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(
+        `Ошибка при генерации сообщения: ${response.status} ${response.statusText}`,
+      );
+      return;
+    }
+
+    const adMessage = await response.json();
+    console.log(adMessage);
+  };
+
+  const generateLinks = () => {
+    const selectedChannelUsernames = channel
+      .split(',')
+      .map((name) => name.trim());
+
+    const links = selectedChannelUsernames
+      .map((username) => `https://t.me/${username}`)
+      .join(', ');
+
+    setGeneratedLinks(links);
   };
 
   return (
@@ -92,51 +168,119 @@ function App() {
           value={channel}
           onChange={(e) => setChannel(e.target.value)}
         />
-        <button
-          className='btn btn-primary w-full'
-          onClick={fetchSimilarChannels}
-        >
-          Получить каналы
-        </button>
 
         {error && <p className='text-red-500'>{error}</p>}
       </div>
 
-      <div className='overflow-x-auto mt-6'>
-        <table className='table w-full table-zebra'>
-          <thead>
-            <tr>
-              <th>Фото</th>
-              <th>ID</th>
-              <th>Название</th>
-              <th>Ссылка</th>
-              <th>Категория</th>
-              <th>Аудитория</th>
-            </tr>
-          </thead>
-          <tbody>
-            {channels.length > 0 ? (
-              channels.map((channel, index) => (
-                <tr key={index}>
-                  <td
-                    dangerouslySetInnerHTML={{ __html: channel.photo_element }}
-                  />
-                  <th>{channel.id}</th>
-                  <td dangerouslySetInnerHTML={{ __html: channel.name }} />
-                  <td>{channel.link}</td>
-                  <td>{channel.category}</td>
-                  <td>{channel.subscribers}</td>
-                </tr>
-              ))
-            ) : (
+      <div className='my-4'>
+        <button
+          className='btn btn-outline w-full my-2'
+          onClick={generateLinks}
+        >
+          Получить ссылки
+        </button>
+
+        <textarea
+          className='textarea w-full'
+          placeholder='Сгенерированные ссылки'
+          value={generatedLinks}
+          readOnly
+        />
+      </div>
+
+      <div className='my-4'>
+        <button
+          className='btn btn-outline w-full my-2'
+          onClick={generateAdMessage}
+        >
+          Генерировать рекламное сообщение
+        </button>
+      </div>
+
+      <div className='my-4'>
+        <button
+          className='btn btn-primary w-full'
+          onClick={fetchSimilarChannels}
+        >
+          Получить похожие каналы
+        </button>
+
+        <div className='overflow-x-auto mt-6'>
+          <table className='table w-full table-zebra'>
+            <thead>
               <tr>
-                <td colSpan={4} className='text-center'>
-                  Нет данных
-                </td>
+                <th>ID</th>
+                <th>Фото</th>
+                <th>Название</th>
+                <th>Категория</th>
+                <th>Аудитория</th>
+                <th>Действие</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {channels.length > 0 ? (
+                channels.map((channel, index) => (
+                  <tr key={index}>
+                    <th>{channel.id}</th>
+                    <td>
+                      <div
+                        className='mask mask-squircle'
+                        dangerouslySetInnerHTML={{
+                          __html: channel.photo_element,
+                        }}
+                      />
+                    </td>
+                    <td
+                      className='tooltip tooltip-right'
+                      data-tip={channel.description}
+                    >
+                      <a
+                        href={`https://t.me/s/${channel.username}`}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                      >
+                        <span
+                          dangerouslySetInnerHTML={{ __html: channel.title }}
+                        />
+                      </a>
+                    </td>
+                    <td>
+                      <select
+                        defaultValue={channel.category}
+                        className='select select-ghost'
+                        onChange={(e) =>
+                          updateCategory(channel.id, e.target.value)
+                        }
+                      >
+                        <option disabled={true}>Выберите категорию</option>
+                        {categories.map((category, index) => (
+                          <option key={index} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>{channel.subscribers}</td>
+                    <td>
+                      <button
+                        className='btn btn-sm btn-secondary'
+                        onClick={() => addChannelUsername(channel.username)}
+                      >
+                        Добавить
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={4} className='text-center'>
+                    Нет данных
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
