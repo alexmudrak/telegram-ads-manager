@@ -40,3 +40,4 @@ dist-ssr
 *.sln
 *.sw?
 .env
+backend/target/*
