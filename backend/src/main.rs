@@ -76,6 +76,20 @@ struct ChannelDatabase {
     channels: Vec<Chat>,
 }
 
+#[derive(Deserialize)]
+struct UpdateCategory {
+    category: String,
+}
+
+fn load_available_categories() -> Vec<String> {
+    dotenv().ok();
+    let categories = env::var("APP_AVAILABLE_CATEGORIES").unwrap_or_default();
+    categories
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect()
+}
+
 fn load_channels_from_file(file_path: &str) -> Result<ChannelDatabase, String> {
     let data = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
     let db: ChannelDatabase = serde_json::from_str(&data).map_err(|e| e.to_string())?;
@@ -113,14 +127,7 @@ async fn fetch_chat_category(client: &Client, data: &str) -> Result<String, Stri
     let endpoint = "https://api.openai.com/v1/chat/completions";
     let api_key = env::var("APP_OPENAI_API_KEY").expect("APP_OPENAI_API_KEY not set");
 
-    let available_categories = vec![
-        "новости",
-        "путешествия",
-        "развлекательные",
-        "политика",
-        "обучение",
-        "работа",
-    ];
+    let available_categories = load_available_categories();
     let categories_str = available_categories.join(", ");
 
     let request_body = json!({
@@ -147,7 +154,7 @@ async fn fetch_chat_category(client: &Client, data: &str) -> Result<String, Stri
         if let Some(choice) = response_json["choices"].as_array().and_then(|c| c.get(0)) {
             if let Some(content) = choice["message"]["content"].as_str() {
                 let category = content.to_lowercase();
-                if available_categories.iter().any(|&cat| cat == category) {
+                if available_categories.iter().any(|cat| cat.to_lowercase() == category) {
                     return Ok(category);
                 } else {
                     let err_msg = format!(
@@ -432,6 +439,43 @@ async fn get_similar_channels(
     }
 }
 
+async fn get_categories() -> HttpResponse {
+    let available_categories = load_available_categories();
+    return HttpResponse::Ok().json(available_categories);
+}
+
+async fn update_category(req: web::Json<UpdateCategory>, id: web::Path<String>) -> HttpResponse {
+    let channel_id_str = id.into_inner();
+    let channel_id: i64 = match channel_id_str.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::BadRequest()
+                .body("Invalid ID format. Expected a numeric string.");
+        }
+    };
+
+    let new_category = req.category.clone();
+    let file_path = "channels.json";
+
+    let mut db = match load_channels_from_file(file_path) {
+        Ok(db) => db,
+        Err(err) => return HttpResponse::InternalServerError().body(err),
+    };
+
+    for channel in &mut db.channels {
+        if channel.id == channel_id {
+            channel.category = Some(new_category);
+            break;
+        }
+    }
+
+    if let Err(err) = save_channels_to_file(file_path, &db) {
+        return HttpResponse::InternalServerError().body(err);
+    }
+
+    HttpResponse::Ok().finish()
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -451,6 +495,11 @@ async fn main() -> std::io::Result<()> {
             .route(
                 "/api/similar-channels",
                 web::post().to(get_similar_channels),
+            )
+            .route("/api/categories", web::get().to(get_categories))
+            .route(
+                "/api/channels/{id}/category",
+                web::put().to(update_category),
             )
     })
     .bind("127.0.0.1:8080")?
