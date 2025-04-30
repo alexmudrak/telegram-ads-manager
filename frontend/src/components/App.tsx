@@ -9,6 +9,8 @@ function App() {
   const [categories, setCategories] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [generatedLinks, setGeneratedLinks] = useState('');
+  const [adProductDesc, setAdProductDesc] = useState('');
+  const [generatedAdMessage, setGeneratedAdMessage] = useState('');
 
   useEffect(() => {
     const storedHash = localStorage.getItem('telegram_hash');
@@ -52,6 +54,7 @@ function App() {
     }
 
     setError('');
+    setChannels([]);
 
     const url = `http://127.0.0.1:8080/api/similar-channels`;
     const response = await fetch(url, {
@@ -107,7 +110,7 @@ function App() {
       },
       body: JSON.stringify({
         channels: channel,
-        productDescription: 'Описание рекламируемого продукта',
+        product_description: adProductDesc,
       }),
     });
 
@@ -119,6 +122,7 @@ function App() {
     }
 
     const adMessage = await response.json();
+    setGeneratedAdMessage(adMessage.ad_message);
     console.log(adMessage);
   };
 
@@ -173,22 +177,32 @@ function App() {
       </div>
 
       <div className='my-4'>
-        <button
-          className='btn btn-outline w-full my-2'
-          onClick={generateLinks}
-        >
-          Получить ссылки
-        </button>
-
         <textarea
           className='textarea w-full'
           placeholder='Сгенерированные ссылки'
           value={generatedLinks}
           readOnly
         />
+        <button className='btn btn-outline w-full my-2' onClick={generateLinks}>
+          Получить ссылки
+        </button>
       </div>
 
       <div className='my-4'>
+        <textarea
+          className='textarea w-full'
+          placeholder='Описание рекламируемого продукта'
+          value={adProductDesc}
+          onChange={(e) => setAdProductDesc(e.target.value)}
+        />
+
+        <textarea
+          className='textarea w-full'
+          placeholder='Рекламный текст'
+          value={generatedAdMessage}
+          readOnly
+        />
+
         <button
           className='btn btn-outline w-full my-2'
           onClick={generateAdMessage}
