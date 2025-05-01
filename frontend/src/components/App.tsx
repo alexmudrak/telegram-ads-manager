@@ -17,11 +17,15 @@ function App() {
     const storedStelSsid = localStorage.getItem('stel_ssid');
     const storedStelToken = localStorage.getItem('stel_token');
     const storedChannel = localStorage.getItem('channel');
+    const storedAdProductDesc = localStorage.getItem('ad_product_desc');
 
     if (storedHash) setHash(storedHash);
     if (storedStelSsid) setStelSsid(storedStelSsid);
     if (storedStelToken) setStelToken(storedStelToken);
     if (storedChannel) setChannel(storedChannel);
+    if (storedAdProductDesc) setAdProductDesc(storedAdProductDesc);
+
+    fetchCategories();
   }, []);
 
   useEffect(() => {
@@ -29,11 +33,8 @@ function App() {
     localStorage.setItem('stel_ssid', stelSsid);
     localStorage.setItem('stel_token', stelToken);
     localStorage.setItem('channel', channel);
-  }, [hash, stelSsid, stelToken, channel]);
-
-  useEffect(() => {
-    fetchCategories();
-  }, []);
+    localStorage.setItem('ad_product_desc', adProductDesc);
+  }, [hash, stelSsid, stelToken, channel, adProductDesc]);
 
   const fetchCategories = async () => {
     const response = await fetch('http://127.0.0.1:8080/api/categories');
@@ -67,6 +68,30 @@ function App() {
         stel_ssid: stelSsid,
         stel_token: stelToken,
         channels: channel,
+      }),
+    });
+
+    if (!response.ok) {
+      setError(`Ошибка: ${response.status} ${response.statusText}`);
+      return;
+    }
+
+    const data = await response.json();
+    setChannels(data);
+  };
+
+  const fetchChannelsByCategory = async (category: string) => {
+    setError('');
+    setChannels([]);
+
+    const url = `http://127.0.0.1:8080/api/get-by-category`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        category: category,
       }),
     });
 
@@ -123,7 +148,6 @@ function App() {
 
     const adMessage = await response.json();
     setGeneratedAdMessage(adMessage.ad_message);
-    console.log(adMessage);
   };
 
   const generateLinks = () => {
@@ -181,7 +205,7 @@ function App() {
           className='textarea w-full'
           placeholder='Сгенерированные ссылки'
           value={generatedLinks}
-          readOnly
+          onChange={(e) => setGeneratedLinks(e.target.value)}
         />
         <button className='btn btn-outline w-full my-2' onClick={generateLinks}>
           Получить ссылки
@@ -218,6 +242,24 @@ function App() {
         >
           Получить похожие каналы
         </button>
+
+        <div className='flex flex-wrap justify-center my-4'>
+          {categories.length > 0 ? (
+            categories.map((category, index) => (
+              <button
+                key={index}
+                className='btn mx-2 mb-2'
+                onClick={() => {
+                  fetchChannelsByCategory(category);
+                }}
+              >
+                {`${category.toUpperCase()}`}
+              </button>
+            ))
+          ) : (
+            <span>No categories</span>
+          )}
+        </div>
 
         <div className='overflow-x-auto mt-6'>
           <table className='table w-full table-zebra'>
