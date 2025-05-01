@@ -21,7 +21,7 @@ struct ChannelRequest {
     channels: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 struct Channel {
     id: i64,
     title: String,
@@ -36,15 +36,15 @@ struct ApiSimilarChannelsResponse {
     channels: Vec<Channel>,
 }
 
-#[derive(Serialize)]
-struct ChannelResponse {
+#[derive(Deserialize, Serialize, Clone)]
+struct ChannelData {
     id: i64,
-    title: String,
+    title: Option<String>,
     username: String,
-    photo_element: String,
+    photo_element: Option<String>,
     category: Option<String>,
-    description: String,
-    subscribers: String,
+    description: Option<String>,
+    subscribers: Option<String>,
 }
 
 impl Default for ApiSimilarChannelsResponse {
@@ -56,24 +56,15 @@ impl Default for ApiSimilarChannelsResponse {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone)]
-struct Chat {
-    id: i64,
-    title: String,
-    username: String,
-    description: Option<String>,
-    category: Option<String>,
-}
-
 #[derive(Deserialize)]
 struct ApiChatResponse {
     ok: bool,
-    result: Option<Chat>,
+    result: Option<ChannelData>,
 }
 
 #[derive(Deserialize, Serialize)]
 struct ChannelDatabase {
-    channels: Vec<Chat>,
+    channels: Vec<ChannelData>,
 }
 
 #[derive(Deserialize)]
@@ -85,6 +76,11 @@ struct UpdateCategory {
 struct GenerateAdRequest {
     channels: String,
     product_description: String,
+}
+
+#[derive(Deserialize)]
+struct FilterByCategory {
+    category: String,
 }
 
 fn load_available_categories() -> Vec<String> {
@@ -253,12 +249,14 @@ async fn get_channels_id(client: &Client, channels: &str) -> Result<String, Stri
         } else {
             match fetch_channel_info(client, &channel_name).await {
                 Ok((channel_id, username, description)) => {
-                    let new_channel = Chat {
+                    let new_channel = ChannelData {
                         id: channel_id,
-                        title: "".to_string(),
+                        title: None,
                         username: username.to_string(),
                         description: Some(description),
                         category: None,
+                        photo_element: None,
+                        subscribers: None,
                     };
                     db.channels.push(new_channel);
                     channels_with_ids.push(channel_id.to_string());
@@ -281,7 +279,7 @@ async fn fetch_similar_channels(
     client: &Client,
     channels_ids: String,
     req: &ChannelRequest,
-) -> Result<Vec<ChannelResponse>, String> {
+) -> Result<Vec<ChannelData>, String> {
     let file_path = "channels.json";
     let db =
         load_channels_from_file(file_path).unwrap_or_else(|_| ChannelDatabase { channels: vec![] });
@@ -316,7 +314,7 @@ async fn fetch_similar_channels(
             serde_json::from_str(&body).map_err(|e| e.to_string())?;
         let channels = api_response.channels;
 
-        let mut channel_responses: Vec<ChannelResponse> = vec![];
+        let mut channel_responses: Vec<ChannelData> = vec![];
         let mut fetch_tasks = vec![];
 
         for channel in channels {
@@ -333,9 +331,13 @@ async fn fetch_similar_channels(
                     .cloned();
 
                 if let Some(existing) = &existing_channel {
-                    if existing.title != channel.title
+                    if existing
+                        .title
+                        .as_ref()
+                        .map_or(true, |t| t != &channel.title)
                         || existing.category.is_none()
                         || existing.description.is_none()
+                        || existing.photo_element.is_none()
                     {
                         db_guard.channels.retain(|c| c.id != existing.id);
                     }
@@ -348,14 +350,14 @@ async fn fetch_similar_channels(
                     .clone()
                     .unwrap_or_else(|| "No description".to_string());
 
-                channel_responses.push(ChannelResponse {
+                channel_responses.push(ChannelData {
                     id: channel.id,
-                    title: channel.title.clone(),
+                    title: Some(channel.title.clone()),
                     username: channel.username.clone(),
-                    photo_element: channel.photo,
+                    photo_element: Some(channel.photo),
                     category: existing.category.clone(),
-                    description,
-                    subscribers: subscribers_count,
+                    description: Some(description),
+                    subscribers: Some(subscribers_count),
                 });
             } else {
                 let client_clone = client.clone();
@@ -378,25 +380,27 @@ async fn fetch_similar_channels(
 
                         category = fetch_chat_category(&client_clone, &combined_description)
                             .await
-                            .unwrap_or("UNKNOWN".to_string());
+                            .unwrap_or("unknown".to_string());
                         let mut db_guard = db_clone.lock().unwrap();
-                        db_guard.channels.push(Chat {
+                        db_guard.channels.push(ChannelData {
                             id: channel_id,
-                            title: channel.title.to_string(),
+                            title: Some(channel.title.to_string()),
                             username: username.to_string(),
+                            photo_element: Some(channel.photo.clone()),
                             category: Some(category.clone()),
                             description: Some(description.clone()),
+                            subscribers: Some(subscribers_count.clone()),
                         });
                     }
 
-                    ChannelResponse {
+                    ChannelData {
                         id: channel_id,
-                        title: channel.title.clone(),
+                        title: Some(channel.title.clone()),
                         username,
-                        photo_element: channel.photo,
+                        photo_element: Some(channel.photo),
                         category: Some(category),
-                        description,
-                        subscribers: subscribers_count,
+                        description: Some(description),
+                        subscribers: Some(subscribers_count),
                     }
                 };
 
@@ -404,7 +408,7 @@ async fn fetch_similar_channels(
             }
         }
 
-        let additional_responses: Vec<ChannelResponse> = join_all(fetch_tasks).await;
+        let additional_responses: Vec<ChannelData> = join_all(fetch_tasks).await;
 
         channel_responses.extend(additional_responses);
 
@@ -569,6 +573,30 @@ async fn get_ad_message(
     }
 }
 
+async fn get_by_category(req: web::Json<FilterByCategory>) -> HttpResponse {
+    let file_path = "channels.json";
+    let db = match load_channels_from_file(file_path) {
+        Ok(db) => db,
+        Err(err) => return HttpResponse::InternalServerError().body(err),
+    };
+    let category = &req.category;
+
+    let found_channels: Vec<_> = db
+        .channels
+        .iter()
+        .filter(|channel| {
+            if let Some(ref channel_category) = channel.category {
+                channel_category == category
+            } else {
+                false
+            }
+        })
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(json!(found_channels))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -595,6 +623,7 @@ async fn main() -> std::io::Result<()> {
                 web::put().to(update_category),
             )
             .route("/api/generate-ad", web::post().to(get_ad_message))
+            .route("/api/get-by-category", web::post().to(get_by_category))
     })
     .bind("127.0.0.1:8080")?
     .run()
