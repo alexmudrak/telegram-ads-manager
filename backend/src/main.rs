@@ -1,4 +1,5 @@
 use actix_cors::Cors;
+use actix_web::middleware::Logger;
 use actix_web::{App, HttpResponse, HttpServer, web};
 use dotenv::dotenv;
 use futures::future::join_all;
@@ -12,6 +13,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::sync::{Arc, Mutex};
+use tokio::time;
 
 #[derive(Deserialize)]
 struct ChannelRequest {
@@ -208,12 +210,21 @@ async fn fetch_channel_info(
         bot_token, channel_name
     );
 
-    info!("{}", url);
+    info!("Fetching channel info for: {}", channel_name);
 
-    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let response = client.get(&url).send().await.map_err(|e| {
+        info!("Error sending request: {}", e);
+        e.to_string()
+    })?;
 
     if response.status().is_success() {
-        let api_response: ApiChatResponse = response.json().await.map_err(|e| e.to_string())?;
+        let api_response: ApiChatResponse = match response.json().await {
+            Ok(data) => data,
+            Err(e) => {
+                info!("Error parsing JSON: {}", e);
+                return Err(e.to_string());
+            }
+        };
 
         if api_response.ok {
             if let Some(chat) = api_response.result {
@@ -241,6 +252,7 @@ async fn fetch_channel_info(
             return Err("API response error".to_string());
         }
     } else {
+        error!("Fetch data for: {} - {}", channel_name, url);
         return Err(format!("Failed request: {}", response.status()));
     }
 }
@@ -331,97 +343,108 @@ async fn fetch_similar_channels(
         let channels = api_response.channels;
 
         let mut channel_responses: Vec<ChannelData> = vec![];
-        let mut fetch_tasks = vec![];
 
-        for channel in channels {
-            let db_clone = Arc::clone(&db);
-            let subscribers_count = extract_subscribers(&channel.cb_item);
-            let existing_channel;
+        let chunk_size = 20;
+        let chunks: Vec<Vec<_>> = channels
+            .chunks(chunk_size)
+            .map(|chunk| chunk.to_vec())
+            .collect();
 
-            {
-                let mut db_guard = db_clone.lock().unwrap();
-                existing_channel = db_guard
-                    .channels
-                    .iter()
-                    .find(|c| c.id == channel.id)
-                    .cloned();
+        for chunk in chunks {
+            let mut fetch_tasks = vec![];
 
-                if let Some(existing) = &existing_channel {
-                    if existing
-                        .title
-                        .as_ref()
-                        .map_or(true, |t| t != &channel.title)
-                        || existing.category.is_none()
-                        || existing.description.is_none()
-                        || existing.photo_element.is_none()
-                    {
-                        db_guard.channels.retain(|c| c.id != existing.id);
+            time::sleep(time::Duration::from_secs(1)).await;
+
+            for channel in chunk {
+                let db_clone = Arc::clone(&db);
+                let subscribers_count = extract_subscribers(&channel.cb_item);
+                let existing_channel;
+
+                {
+                    let mut db_guard = db_clone.lock().unwrap();
+                    existing_channel = db_guard
+                        .channels
+                        .iter()
+                        .find(|c| c.id == channel.id)
+                        .cloned();
+
+                    if let Some(existing) = &existing_channel {
+                        if existing
+                            .title
+                            .as_ref()
+                            .map_or(true, |t| t != &channel.title)
+                            || existing.category.is_none()
+                            || existing.description.is_none()
+                            || existing.photo_element.is_none()
+                        {
+                            db_guard.channels.retain(|c| c.id != existing.id);
+                        }
                     }
+                }
+
+                if let Some(existing) = existing_channel {
+                    channel_responses.push(ChannelData {
+                        id: channel.id,
+                        title: Some(channel.title.clone()),
+                        username: channel.username.clone(),
+                        photo_element: Some(channel.photo),
+                        category: existing.category.clone(),
+                        description: existing.description.clone(),
+                        subscribers: Some(subscribers_count),
+                        geo: existing.geo.clone(),
+                    });
+                } else {
+                    let client_clone = client.clone();
+                    let channel_username_clone = channel.username.clone();
+
+                    let task = async move {
+                        let (channel_id, username, description) =
+                            fetch_channel_info(&client_clone, &channel_username_clone)
+                                .await
+                                .unwrap_or((channel.id, channel_username_clone, None));
+
+                        let mut category = "".to_string();
+
+                        if channel_id != 0 {
+                            let combined_description =
+                                format!("{} {:?}", channel.title, Some(&description),);
+
+                            category = fetch_chat_category(&client_clone, &combined_description)
+                                .await
+                                .unwrap_or("unknown".to_string());
+                            let mut db_guard = db_clone.lock().unwrap();
+                            db_guard.channels.push(ChannelData {
+                                id: channel_id,
+                                title: Some(channel.title.to_string()),
+                                username: username.to_string(),
+                                photo_element: Some(channel.photo.clone()),
+                                category: Some(category.clone()),
+                                description: description.clone(),
+                                subscribers: Some(subscribers_count.clone()),
+                                geo: None,
+                            });
+                        }
+
+                        ChannelData {
+                            id: channel_id,
+                            title: Some(channel.title.clone()),
+                            username,
+                            photo_element: Some(channel.photo),
+                            category: Some(category),
+                            description: description.clone(),
+                            subscribers: Some(subscribers_count),
+                            geo: None,
+                        }
+                    };
+
+                    fetch_tasks.push(task);
                 }
             }
 
-            if let Some(existing) = existing_channel {
-                channel_responses.push(ChannelData {
-                    id: channel.id,
-                    title: Some(channel.title.clone()),
-                    username: channel.username.clone(),
-                    photo_element: Some(channel.photo),
-                    category: existing.category.clone(),
-                    description: existing.description.clone(),
-                    subscribers: Some(subscribers_count),
-                    geo: existing.geo.clone(),
-                });
-            } else {
-                let client_clone = client.clone();
-                let channel_username_clone = channel.username.clone();
+            let additional_responses: Vec<ChannelData> = join_all(fetch_tasks).await;
 
-                let task = async move {
-                    let (channel_id, username, description) =
-                        fetch_channel_info(&client_clone, &channel_username_clone)
-                            .await
-                            .unwrap_or((channel.id, channel_username_clone, None));
-
-                    let mut category = "".to_string();
-
-                    if channel_id != 0 {
-                        let combined_description =
-                            format!("{} {:?}", channel.title, Some(&description),);
-
-                        category = fetch_chat_category(&client_clone, &combined_description)
-                            .await
-                            .unwrap_or("unknown".to_string());
-                        let mut db_guard = db_clone.lock().unwrap();
-                        db_guard.channels.push(ChannelData {
-                            id: channel_id,
-                            title: Some(channel.title.to_string()),
-                            username: username.to_string(),
-                            photo_element: Some(channel.photo.clone()),
-                            category: Some(category.clone()),
-                            description: description.clone(),
-                            subscribers: Some(subscribers_count.clone()),
-                            geo: None,
-                        });
-                    }
-
-                    ChannelData {
-                        id: channel_id,
-                        title: Some(channel.title.clone()),
-                        username,
-                        photo_element: Some(channel.photo),
-                        category: Some(category),
-                        description: description.clone(),
-                        subscribers: Some(subscribers_count),
-                        geo: None,
-                    }
-                };
-
-                fetch_tasks.push(task);
-            }
+            channel_responses.extend(additional_responses);
         }
-
-        let additional_responses: Vec<ChannelData> = join_all(fetch_tasks).await;
-
-        channel_responses.extend(additional_responses);
 
         save_channels_to_file(file_path, &db.lock().unwrap()).map_err(|e| e.to_string())?;
 
@@ -661,6 +684,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(client.clone()))
+            .wrap(Logger::default())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
