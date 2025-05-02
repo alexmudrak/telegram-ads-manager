@@ -36,7 +36,7 @@ struct ApiSimilarChannelsResponse {
     channels: Vec<Channel>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct ChannelData {
     id: i64,
     title: Option<String>,
@@ -45,6 +45,7 @@ struct ChannelData {
     category: Option<String>,
     description: Option<String>,
     subscribers: Option<String>,
+    geo: Option<String>,
 }
 
 impl Default for ApiSimilarChannelsResponse {
@@ -73,14 +74,20 @@ struct UpdateCategory {
 }
 
 #[derive(Deserialize)]
+struct UpdateGeo {
+    geo: String,
+}
+
+#[derive(Deserialize)]
 struct GenerateAdRequest {
     channels: String,
     product_description: String,
 }
 
 #[derive(Deserialize)]
-struct FilterByCategory {
-    category: String,
+struct FilterBy {
+    category: Option<String>,
+    geo: Option<String>,
 }
 
 fn load_available_categories() -> Vec<String> {
@@ -90,6 +97,12 @@ fn load_available_categories() -> Vec<String> {
         .split(',')
         .map(|s| s.trim().to_string())
         .collect()
+}
+
+fn load_available_geos() -> Vec<String> {
+    dotenv().ok();
+    let geos = env::var("APP_AVAILABLE_GEOS").unwrap_or_default();
+    geos.split(',').map(|s| s.trim().to_string()).collect()
 }
 
 fn load_channels_from_file(file_path: &str) -> Result<ChannelDatabase, String> {
@@ -188,12 +201,14 @@ async fn fetch_chat_category(client: &Client, data: &str) -> Result<String, Stri
 async fn fetch_channel_info(
     client: &Client,
     channel_name: &str,
-) -> Result<(i64, String, String), String> {
+) -> Result<(i64, String, Option<String>), String> {
     let bot_token = env::var("APP_TELEGRAM_BOT_TOKEN").expect("APP_TELEGRAM_BOT_TOKEN not set");
     let url = format!(
         "https://api.telegram.org/bot{}/getChat?chat_id=@{}",
         bot_token, channel_name
     );
+
+    info!("{}", url);
 
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
 
@@ -217,7 +232,7 @@ async fn fetch_channel_info(
                 return Ok((
                     clean_id.parse().unwrap_or_default(),
                     chat.username,
-                    description,
+                    Some(description),
                 ));
             } else {
                 return Err("Channel not found".to_string());
@@ -253,10 +268,11 @@ async fn get_channels_id(client: &Client, channels: &str) -> Result<String, Stri
                         id: channel_id,
                         title: None,
                         username: username.to_string(),
-                        description: Some(description),
+                        description: description.clone(),
                         category: None,
                         photo_element: None,
                         subscribers: None,
+                        geo: None,
                     };
                     db.channels.push(new_channel);
                     channels_with_ids.push(channel_id.to_string());
@@ -345,19 +361,15 @@ async fn fetch_similar_channels(
             }
 
             if let Some(existing) = existing_channel {
-                let description = existing
-                    .description
-                    .clone()
-                    .unwrap_or_else(|| "No description".to_string());
-
                 channel_responses.push(ChannelData {
                     id: channel.id,
                     title: Some(channel.title.clone()),
                     username: channel.username.clone(),
                     photo_element: Some(channel.photo),
                     category: existing.category.clone(),
-                    description: Some(description),
+                    description: existing.description.clone(),
                     subscribers: Some(subscribers_count),
+                    geo: existing.geo.clone(),
                 });
             } else {
                 let client_clone = client.clone();
@@ -367,16 +379,13 @@ async fn fetch_similar_channels(
                     let (channel_id, username, description) =
                         fetch_channel_info(&client_clone, &channel_username_clone)
                             .await
-                            .unwrap_or((
-                                0,
-                                "No username".to_string(),
-                                "No description".to_string(),
-                            ));
+                            .unwrap_or((channel.id, channel_username_clone, None));
 
                     let mut category = "".to_string();
 
                     if channel_id != 0 {
-                        let combined_description = format!("{} {}", channel.title, description,);
+                        let combined_description =
+                            format!("{} {:?}", channel.title, Some(&description),);
 
                         category = fetch_chat_category(&client_clone, &combined_description)
                             .await
@@ -388,8 +397,9 @@ async fn fetch_similar_channels(
                             username: username.to_string(),
                             photo_element: Some(channel.photo.clone()),
                             category: Some(category.clone()),
-                            description: Some(description.clone()),
+                            description: description.clone(),
                             subscribers: Some(subscribers_count.clone()),
+                            geo: None,
                         });
                     }
 
@@ -399,8 +409,9 @@ async fn fetch_similar_channels(
                         username,
                         photo_element: Some(channel.photo),
                         category: Some(category),
-                        description: Some(description),
+                        description: description.clone(),
                         subscribers: Some(subscribers_count),
+                        geo: None,
                     }
                 };
 
@@ -457,6 +468,11 @@ async fn get_categories() -> HttpResponse {
     return HttpResponse::Ok().json(available_categories);
 }
 
+async fn get_geos() -> HttpResponse {
+    let available_geos = load_available_geos();
+    return HttpResponse::Ok().json(available_geos);
+}
+
 async fn update_category(req: web::Json<UpdateCategory>, id: web::Path<String>) -> HttpResponse {
     let channel_id_str = id.into_inner();
     let channel_id: i64 = match channel_id_str.parse() {
@@ -488,6 +504,39 @@ async fn update_category(req: web::Json<UpdateCategory>, id: web::Path<String>) 
 
     HttpResponse::Ok().finish()
 }
+
+async fn update_geo(req: web::Json<UpdateGeo>, id: web::Path<String>) -> HttpResponse {
+    let channel_id_str = id.into_inner();
+    let channel_id: i64 = match channel_id_str.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::BadRequest()
+                .body("Invalid ID format. Expected a numeric string.");
+        }
+    };
+
+    let new_geo = req.geo.clone();
+    let file_path = "channels.json";
+
+    let mut db = match load_channels_from_file(file_path) {
+        Ok(db) => db,
+        Err(err) => return HttpResponse::InternalServerError().body(err),
+    };
+
+    for channel in &mut db.channels {
+        if channel.id == channel_id {
+            channel.geo = Some(new_geo);
+            break;
+        }
+    }
+
+    if let Err(err) = save_channels_to_file(file_path, &db) {
+        return HttpResponse::InternalServerError().body(err);
+    }
+
+    HttpResponse::Ok().finish()
+}
+
 async fn fetch_ad_message(
     client: &Client,
     channels_descriptions: &str,
@@ -573,23 +622,28 @@ async fn get_ad_message(
     }
 }
 
-async fn get_by_category(req: web::Json<FilterByCategory>) -> HttpResponse {
+async fn get_by_filter(req: web::Json<FilterBy>) -> HttpResponse {
     let file_path = "channels.json";
     let db = match load_channels_from_file(file_path) {
         Ok(db) => db,
         Err(err) => return HttpResponse::InternalServerError().body(err),
     };
     let category = &req.category;
+    let geo = &req.geo;
 
     let found_channels: Vec<_> = db
         .channels
         .iter()
         .filter(|channel| {
-            if let Some(ref channel_category) = channel.category {
-                channel_category == category
-            } else {
-                false
-            }
+            let matches_category = category
+                .as_ref()
+                .map_or(true, |cat| channel.category.as_ref() == Some(cat));
+
+            let matches_geo = geo
+                .as_ref()
+                .map_or(true, |g| channel.geo.as_ref() == Some(g));
+
+            matches_category && matches_geo
         })
         .cloned()
         .collect();
@@ -618,12 +672,14 @@ async fn main() -> std::io::Result<()> {
                 web::post().to(get_similar_channels),
             )
             .route("/api/categories", web::get().to(get_categories))
+            .route("/api/geos", web::get().to(get_geos))
             .route(
                 "/api/channels/{id}/category",
                 web::put().to(update_category),
             )
+            .route("/api/channels/{id}/geo", web::put().to(update_geo))
             .route("/api/generate-ad", web::post().to(get_ad_message))
-            .route("/api/get-by-category", web::post().to(get_by_category))
+            .route("/api/get-filter", web::post().to(get_by_filter))
     })
     .bind("127.0.0.1:8080")?
     .run()

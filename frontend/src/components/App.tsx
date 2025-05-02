@@ -7,10 +7,13 @@ function App() {
   const [channel, setChannel] = useState('');
   const [channels, setChannels] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [geos, setGeos] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [generatedLinks, setGeneratedLinks] = useState('');
   const [adProductDesc, setAdProductDesc] = useState('');
   const [generatedAdMessage, setGeneratedAdMessage] = useState('');
+  const [filterCategory, setFilterCategory] = useState(null);
+  const [filterGeo, setFilterGeo] = useState(null);
 
   useEffect(() => {
     const storedHash = localStorage.getItem('telegram_hash');
@@ -26,6 +29,7 @@ function App() {
     if (storedAdProductDesc) setAdProductDesc(storedAdProductDesc);
 
     fetchCategories();
+    fetchGeos();
   }, []);
 
   useEffect(() => {
@@ -35,6 +39,28 @@ function App() {
     localStorage.setItem('channel', channel);
     localStorage.setItem('ad_product_desc', adProductDesc);
   }, [hash, stelSsid, stelToken, channel, adProductDesc]);
+
+  useEffect(() => {
+    if (filterCategory || filterGeo) {
+      fetchChannelsByFilter();
+    }
+  }, [filterCategory, filterGeo]);
+
+  const handleCategoryClick = (category) => {
+    if (filterCategory === category) {
+      setFilterCategory(null);
+    } else {
+      setFilterCategory(category);
+    }
+  };
+
+  const handleGeoClick = (geo) => {
+    if (filterGeo === geo) {
+      setFilterGeo(null);
+    } else {
+      setFilterGeo(geo);
+    }
+  };
 
   const fetchCategories = async () => {
     const response = await fetch('http://127.0.0.1:8080/api/categories');
@@ -46,6 +72,18 @@ function App() {
     }
     const data = await response.json();
     setCategories(data);
+  };
+
+  const fetchGeos = async () => {
+    const response = await fetch('http://127.0.0.1:8080/api/geos');
+    if (!response.ok) {
+      console.error(
+        `Ошибка при загрузке гео: ${response.status} ${response.statusText}`,
+      );
+      return;
+    }
+    const data = await response.json();
+    setGeos(data);
   };
 
   const fetchSimilarChannels = async () => {
@@ -80,18 +118,19 @@ function App() {
     setChannels(data);
   };
 
-  const fetchChannelsByCategory = async (category: string) => {
+  const fetchChannelsByFilter = async () => {
     setError('');
     setChannels([]);
 
-    const url = `http://127.0.0.1:8080/api/get-by-category`;
+    const url = `http://127.0.0.1:8080/api/get-filter`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        category: category,
+        category: filterCategory,
+        geo: filterGeo,
       }),
     });
 
@@ -106,6 +145,13 @@ function App() {
 
   const addChannelUsername = (username: string) => {
     setChannel((prev) => (prev ? `${prev}, ${username}` : username));
+  };
+
+  const addAllUsernames = () => {
+    setChannel('');
+    channels.forEach((channel) => {
+      addChannelUsername(channel.username);
+    });
   };
 
   const updateCategory = async (channelId: string, newCategory: string) => {
@@ -123,6 +169,25 @@ function App() {
     if (!response.ok) {
       console.error(
         `Ошибка при обновлении категории: ${response.status} ${response.statusText}`,
+      );
+    }
+  };
+
+  const updateGeo = async (channelId: string, newGeo: string) => {
+    const response = await fetch(
+      `http://127.0.0.1:8080/api/channels/${channelId}/geo`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ geo: newGeo }),
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        `Ошибка при обновлении гео: ${response.status} ${response.statusText}`,
       );
     }
   };
@@ -189,10 +254,9 @@ function App() {
           value={stelToken}
           onChange={(e) => setStelToken(e.target.value)}
         />
-        <input
-          type='text'
+        <textarea
+          className='textarea w-full'
           placeholder='Ваш базовый канал'
-          className='input input-bordered w-full'
           value={channel}
           onChange={(e) => setChannel(e.target.value)}
         />
@@ -214,14 +278,14 @@ function App() {
 
       <div className='my-4'>
         <textarea
-          className='textarea w-full'
+          className='textarea w-full my-2'
           placeholder='Описание рекламируемого продукта'
           value={adProductDesc}
           onChange={(e) => setAdProductDesc(e.target.value)}
         />
 
         <textarea
-          className='textarea w-full'
+          className='textarea w-full my-2'
           placeholder='Рекламный текст'
           value={generatedAdMessage}
           readOnly
@@ -244,14 +308,28 @@ function App() {
         </button>
 
         <div className='flex flex-wrap justify-center my-4'>
+          {geos.length > 0 ? (
+            geos.map((geo, index) => (
+              <button
+                key={index}
+                className={`btn mx-2 mb-2 ${filterGeo === geo ? 'btn-warning' : ''}`}
+                onClick={() => handleGeoClick(geo)}
+              >
+                {`${geo.toUpperCase()}`}
+              </button>
+            ))
+          ) : (
+            <span>No categories</span>
+          )}
+        </div>
+
+        <div className='flex flex-wrap justify-center my-4'>
           {categories.length > 0 ? (
             categories.map((category, index) => (
               <button
                 key={index}
-                className='btn mx-2 mb-2'
-                onClick={() => {
-                  fetchChannelsByCategory(category);
-                }}
+                className={`btn mx-2 mb-2 ${filterCategory === category ? 'btn-warning' : ''}`}
+                onClick={() => handleCategoryClick(category)}
               >
                 {`${category.toUpperCase()}`}
               </button>
@@ -261,14 +339,21 @@ function App() {
           )}
         </div>
 
+        <div>
+          <button className='btn btn-sm btn-info' onClick={addAllUsernames}>
+            Добавить все
+          </button>
+        </div>
+
         <div className='overflow-x-auto mt-6'>
-          <table className='table w-full table-zebra'>
+          <table className='table w-full'>
             <thead>
               <tr>
                 <th>ID</th>
                 <th>Фото</th>
                 <th>Название</th>
                 <th>Категория</th>
+                <th>Гео</th>
                 <th>Аудитория</th>
                 <th>Действие</th>
               </tr>
@@ -276,11 +361,12 @@ function App() {
             <tbody>
               {channels.length > 0 ? (
                 channels.map((channel, index) => (
-                  <tr key={index}>
+                  <tr key={index} className='hover:bg-gray-800'>
                     <th>{channel.id}</th>
                     <td>
                       <div
-                        className='mask mask-squircle'
+                        className='mask mask-squircle w-10'
+                        data-tip={channel.description}
                         dangerouslySetInnerHTML={{
                           __html: channel.photo_element,
                         }}
@@ -312,6 +398,22 @@ function App() {
                         {categories.map((category, index) => (
                           <option key={index} value={category}>
                             {category}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        defaultValue={channel.geo || ''}
+                        className='select select-ghost'
+                        onChange={(e) => updateGeo(channel.id, e.target.value)}
+                      >
+                        <option value='' disabled={true}>
+                          Выберите гео
+                        </option>
+                        {geos.map((geo, index) => (
+                          <option key={index} value={geo}>
+                            {geo}
                           </option>
                         ))}
                       </select>
