@@ -319,7 +319,7 @@ function App() {
               </button>
             ))
           ) : (
-            <span>No categories</span>
+            <span>No Geos</span>
           )}
         </div>
 
