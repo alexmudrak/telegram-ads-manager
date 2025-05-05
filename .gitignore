@@ -43,6 +43,3 @@ dist-ssr
 backend/target/*
 channels.json
 channels.json_bk
-channels.json_bk
-channels.json
-.env
