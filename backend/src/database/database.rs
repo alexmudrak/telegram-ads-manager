@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use super::models::{ChannelData, Database};
 use crate::config::DatabaseConfig;
@@ -7,6 +7,7 @@ use tokio::{fs, sync::Mutex};
 
 #[derive(Clone, Debug)]
 pub struct JsonDatabase {
+    _file_path: PathBuf,
     db: Arc<Mutex<Database>>,
 }
 
@@ -25,8 +26,19 @@ impl JsonDatabase {
         };
 
         Ok(Self {
+            _file_path: config.file_path,
             db: Arc::new(Mutex::new(data)),
         })
+    }
+
+    async fn save(&self, data: &Database) -> Result<(), String> {
+        let contents = serde_json::to_string_pretty(data)
+            .map_err(|e| format!("Failed to serialize database: {}", e))?;
+        fs::write(&self._file_path, contents)
+            .await
+            .map_err(|e| format!("Failed to write to DB file: {}", e))?;
+        info!("Database saved to {:?}", &self._file_path);
+        Ok(())
     }
 
     pub async fn filter_channels(
@@ -47,5 +59,12 @@ impl JsonDatabase {
             })
             .cloned()
             .collect()
+    }
+
+    pub async fn add_channel(&self, channel: ChannelData) -> Result<(), String> {
+        let mut data = self.db.lock().await;
+        data.channels.push(channel);
+        self.save(&data).await?;
+        Ok(())
     }
 }

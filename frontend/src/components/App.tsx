@@ -30,6 +30,7 @@ function App() {
 
     fetchCategories();
     fetchGeos();
+    fetchChannelsByFilter();
   }, []);
 
   useEffect(() => {
@@ -63,7 +64,7 @@ function App() {
   };
 
   const fetchCategories = async () => {
-    const response = await fetch('http://127.0.0.1:8080/api/categories');
+    const response = await fetch('http://127.0.0.1:8080/api/v1/categories/');
     if (!response.ok) {
       console.error(
         `Ошибка при загрузке категорий: ${response.status} ${response.statusText}`,
@@ -75,7 +76,7 @@ function App() {
   };
 
   const fetchGeos = async () => {
-    const response = await fetch('http://127.0.0.1:8080/api/geos');
+    const response = await fetch('http://127.0.0.1:8080/api/v1/geos/');
     if (!response.ok) {
       console.error(
         `Ошибка при загрузке гео: ${response.status} ${response.statusText}`,
@@ -122,16 +123,22 @@ function App() {
     setError('');
     setChannels([]);
 
-    const url = `http://127.0.0.1:8080/api/get-filter`;
+    const params = new URLSearchParams();
+
+    if (filterCategory) {
+      params.append('category', filterCategory);
+    }
+
+    if (filterGeo) {
+      params.append('geo', filterGeo);
+    }
+    const url = `http://127.0.0.1:8080/api/v1/channels/?${params.toString()}`;
+
     const response = await fetch(url, {
-      method: 'POST',
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        category: filterCategory,
-        geo: filterGeo,
-      }),
     });
 
     if (!response.ok) {
@@ -140,7 +147,7 @@ function App() {
     }
 
     const data = await response.json();
-    setChannels(data);
+    setChannels(data.channels);
   };
 
   const addChannelUsername = (username: string) => {

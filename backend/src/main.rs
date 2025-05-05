@@ -1,6 +1,8 @@
 mod api;
 mod config;
 mod database;
+mod services;
+mod utils;
 
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
