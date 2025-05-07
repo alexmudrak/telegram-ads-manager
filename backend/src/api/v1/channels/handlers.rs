@@ -49,6 +49,7 @@ pub async fn get_similar_channels(
                     db.clone(),
                     channels_data.clone(),
                     config.categories.clone(),
+                    config.geos.clone(),
                 )
                 .await
             {

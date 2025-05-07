@@ -1,3 +1,4 @@
+use log::{debug, error, info, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -13,6 +14,21 @@ pub struct OpenAiMessage {
     role: String,
     content: String,
 }
+impl OpenAiMessage {
+    pub fn system<S: Into<String>>(content: S) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn user<S: Into<String>>(content: S) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct OpenAiClient {
@@ -23,6 +39,9 @@ pub struct OpenAiClient {
 
 impl OpenAiClient {
     pub fn new(model: &str, api_key: &str) -> Self {
+        if model.is_empty() {
+            panic!("OpenAI model must be specified");
+        }
         Self {
             client: Client::new(),
             api_key: api_key.to_string(),
@@ -34,12 +53,15 @@ impl OpenAiClient {
         &self,
         messages: Vec<OpenAiMessage>,
         max_tokens: Option<i32>,
+        temperature: Option<f64>,
     ) -> Result<String, String> {
-        let max_tokens = max_tokens.unwrap_or(50);
+        debug!("Sending request to OpenAI with {} messages", messages.len());
+
         let body = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens.unwrap_or(50),
+            "temperature": temperature.unwrap_or(0.0),
         });
 
         let response = self
@@ -53,24 +75,80 @@ impl OpenAiClient {
             .map_err(|e| format!("Request to OpenAI failed: {}", e))?;
 
         let status = response.status();
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response from OpenAi: {}", e))?;
+        let response_text = response.text().await.map_err(|e| {
+            error!("OpenAI response read error: {}", e);
+            format!("Failed to read response from OpenAi: {}", e)
+        })?;
 
         if !status.is_success() {
+            error!("OpenAI API error: {}\n{}", status, response_text);
             return Err(format!("OpenAI API error: {}\n{}", status, response_text));
         }
 
-        let json: serde_json::Value = serde_json::from_str(&response_text)
-            .map_err(|e| format!("OpenAI response JSON error: {}", e))?;
+        let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+            error!("OpenAI JSON parsing error: {}", e);
+            format!("OpenAI response JSON error: {}", e)
+        })?;
 
         let content = json["choices"][0]["message"]["content"]
             .as_str()
-            .ok_or("No content found in response")?
+            .ok_or_else(|| {
+                error!("No content in OpenAI response");
+                "No content found in OpenAI response".to_string()
+            })?
             .to_string();
 
+        debug!("Received content from OpenAI: {}", content);
         Ok(content)
+    }
+
+    async fn classify_label(
+        &self,
+        label_type: &str,
+        data: &str,
+        candidates: &[String],
+    ) -> Result<String, String> {
+        let candidates_lower: Vec<String> = candidates.iter().map(|c| c.to_lowercase()).collect();
+        let candidates_str = candidates_lower.join(", ");
+
+        debug!("Classifying '{}' for channel data: {}", label_type, data);
+
+        let system_prompt = format!(
+            "Ты — классификатор телеграм-каналов. Твоя задача — выбрать одно значение {} из списка. Возвращай только одно значение без пояснений.",
+            label_type
+        );
+
+        let user_prompt = format!(
+            "Возможные значения: [{}]\n\nОписание канала:\n\"{}\"\n\nВыбери наиболее подходящее. Верни только одно точное значение из списка.",
+            candidates_str,
+            data.trim()
+        );
+
+        let messages = vec![
+            OpenAiMessage::system(system_prompt),
+            OpenAiMessage::user(user_prompt),
+        ];
+
+        match self.send_chat_completion(messages, None, None).await {
+            Ok(result) => {
+                let label = result.trim().to_lowercase();
+
+                if candidates_lower.contains(&label) {
+                    info!("Successfully classified '{}' as '{}'", label_type, label);
+                    Ok(label)
+                } else {
+                    warn!("OpenAI returned unknown {}: '{}'", label_type, label);
+                    Err(format!(
+                        "OpenAI couldn't classify {}. Got: '{}'",
+                        label_type, label
+                    ))
+                }
+            }
+            Err(e) => {
+                error!("Failed to classify {}: {}", label_type, e);
+                Err(e)
+            }
+        }
     }
 
     pub async fn fetch_chat_category(
@@ -78,32 +156,15 @@ impl OpenAiClient {
         channel_data: String,
         categories: Vec<String>,
     ) -> Result<String, String> {
-        let categories_lower: Vec<String>= categories
-            .iter()
-            .map(|c| c.to_lowercase())
-            .collect();
-        let categories_str = categories_lower.join(",");
-        let messages = vec![
-OpenAiMessage {
-        role: "system".to_string(),
-        content: "Ты — классификатор телеграм-каналов. Твоя задача — выбрать ОДНУ категорию из списка, основываясь на предоставленных данных. Возвращай только саму категорию, без пояснений.".to_string(),
-    },
-            OpenAiMessage {
-            role: "user".to_string(),
-            content: format!(
-                "Возможные категории: [{}]\n\nОписание канала:\n\"{}\"\n\nВыбери наиболее подходящую категорию. Верни только точное название одной категории из списка.",
-                categories_str,
-                channel_data.trim(), 
-            ),
-        }];
+        self.classify_label("категория", &channel_data, &categories)
+            .await
+    }
 
-        let result = self.send_chat_completion(messages, None).await?;
-        let category = result.trim().to_lowercase();
-        if categories_lower.contains(&category) {
-            Ok(category)
-        } else {
-            Err(format!("OpenAi cant find category"))
-        }
-
+    pub async fn fetch_chat_geo(
+        &self,
+        channel_data: String,
+        geos: Vec<String>,
+    ) -> Result<String, String> {
+        self.classify_label("гео", &channel_data, &geos).await
     }
 }

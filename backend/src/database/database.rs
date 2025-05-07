@@ -50,10 +50,12 @@ impl JsonDatabase {
         data.channels
             .iter()
             .filter(|channel| {
-                let matches_category =
-                    category.map_or(true, |cat| channel.category.as_ref() == Some(cat));
+                let matches_category = category.map_or(true, |cat| {
+                    channel.category.as_ref() == Some(&cat.to_lowercase())
+                });
 
-                let matches_geo = geo.map_or(true, |g| channel.geo.as_ref() == Some(g));
+                let matches_geo =
+                    geo.map_or(true, |g| channel.geo.as_ref() == Some(&g.to_lowercase()));
 
                 matches_category && matches_geo
             })

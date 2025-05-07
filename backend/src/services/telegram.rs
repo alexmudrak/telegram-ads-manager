@@ -178,6 +178,7 @@ impl TelegramService {
         db: web::Data<JsonDatabase>,
         channels: Vec<TelegramSimilarChat>,
         categories: Vec<String>,
+        geos: Vec<String>,
     ) -> Result<Vec<ChannelData>, String> {
         let exist_channels = db.filter_channels(None, None).await;
 
@@ -201,7 +202,10 @@ impl TelegramService {
                 updated_channel.photo_element = channel.photo;
                 updated_channel.subscribers = subscribers;
 
-                if updated_channel.category.is_none() || updated_channel.description.is_none() {
+                if updated_channel.category.is_none()
+                    || updated_channel.description.is_none()
+                    || updated_channel.geo.is_none()
+                {
                     need_to_update_channels.push(updated_channel);
                 } else {
                     db.add_or_update_channel(updated_channel.clone()).await.ok();
@@ -232,6 +236,7 @@ impl TelegramService {
             .map(|chunk| {
                 let db = db.clone();
                 let categories_clone = categories.clone();
+                let geos_clone = geos.clone();
                 async move {
                     let mut updated = Vec::new();
                     for mut channel in chunk {
@@ -255,6 +260,22 @@ impl TelegramService {
                                 }
                             }
                         }
+                        if channel.geo.is_none() {
+                            if let Some(openai) = &self.openai_service {
+                                let combined_description =
+                                    format!("{:?} {:?}", channel.title, channel.description);
+                                if let Ok(geo) = openai
+                                    .fetch_chat_geo(
+                                        combined_description.to_string(),
+                                        geos_clone.clone(),
+                                    )
+                                    .await
+                                {
+                                    channel.geo = Some(geo);
+                                }
+                            }
+                        }
+
                         db.add_or_update_channel(channel.clone()).await.ok();
                         updated.push(channel);
                         sleep(Duration::from_secs(1)).await;
@@ -278,6 +299,7 @@ impl TelegramService {
         db: web::Data<JsonDatabase>,
         channels: Vec<ChannelData>,
         categories: Vec<String>,
+        geos: Vec<String>,
     ) -> Result<Vec<ChannelData>, String> {
         info!(
             "Fetching similar channels for: {}",
@@ -350,7 +372,12 @@ impl TelegramService {
                 info!("Find similar channels: {}", similar_channels.len());
 
                 let result = &self
-                    .enrich_channels_with_missing_data(db.clone(), similar_channels, categories)
+                    .enrich_channels_with_missing_data(
+                        db.clone(),
+                        similar_channels,
+                        categories,
+                        geos,
+                    )
                     .await?;
 
                 return Ok(result.to_vec());
