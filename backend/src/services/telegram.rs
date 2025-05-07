@@ -144,7 +144,7 @@ impl TelegramService {
                         username: chat.username.unwrap_or_default(),
                         photo_element: None,
                         category: None,
-                        description: chat.description,
+                        description: Some(chat.description.unwrap_or_default()),
                         subscribers: None,
                         geo: None,
                     };
@@ -171,6 +171,45 @@ impl TelegramService {
                 status
             ))
         }
+    }
+
+    async fn enrich_channel_data(
+        &self,
+        mut channel: ChannelData,
+        categories: &[String],
+        geos: &[String],
+    ) -> ChannelData {
+        if channel.description.is_none() {
+            if let Ok(fetched) = self.fetch_channel_data(&channel.username).await {
+                channel.description = fetched.description;
+            }
+        }
+
+        let combined_description = format!("{:?} {:?}", channel.title, channel.description);
+
+        if channel.category.is_none() {
+            if let Some(openai) = &self.openai_service {
+                if let Ok(category) = openai
+                    .fetch_chat_category(combined_description.clone(), categories.to_vec())
+                    .await
+                {
+                    channel.category = Some(category);
+                }
+            }
+        }
+
+        if channel.geo.is_none() {
+            if let Some(openai) = &self.openai_service {
+                if let Ok(geo) = openai
+                    .fetch_chat_geo(combined_description, geos.to_vec())
+                    .await
+                {
+                    channel.geo = Some(geo);
+                }
+            }
+        }
+
+        channel
     }
 
     async fn enrich_channels_with_missing_data(
@@ -239,45 +278,13 @@ impl TelegramService {
                 let geos_clone = geos.clone();
                 async move {
                     let mut updated = Vec::new();
-                    for mut channel in chunk {
-                        if channel.description.is_none() {
-                            if let Ok(fetched) = self.fetch_channel_data(&channel.username).await {
-                                channel.description = fetched.description;
-                            }
-                        }
-                        if channel.category.is_none() {
-                            if let Some(openai) = &self.openai_service {
-                                let combined_description =
-                                    format!("{:?} {:?}", channel.title, channel.description);
-                                if let Ok(category) = openai
-                                    .fetch_chat_category(
-                                        combined_description.to_string(),
-                                        categories_clone.clone(),
-                                    )
-                                    .await
-                                {
-                                    channel.category = Some(category);
-                                }
-                            }
-                        }
-                        if channel.geo.is_none() {
-                            if let Some(openai) = &self.openai_service {
-                                let combined_description =
-                                    format!("{:?} {:?}", channel.title, channel.description);
-                                if let Ok(geo) = openai
-                                    .fetch_chat_geo(
-                                        combined_description.to_string(),
-                                        geos_clone.clone(),
-                                    )
-                                    .await
-                                {
-                                    channel.geo = Some(geo);
-                                }
-                            }
-                        }
+                    for channel in chunk {
+                        let enriched = self
+                            .enrich_channel_data(channel, &categories_clone, &geos_clone)
+                            .await;
 
-                        db.add_or_update_channel(channel.clone()).await.ok();
-                        updated.push(channel);
+                        db.add_or_update_channel(enriched.clone()).await.ok();
+                        updated.push(enriched);
                         sleep(Duration::from_secs(1)).await;
                     }
                     updated
@@ -393,5 +400,22 @@ impl TelegramService {
                 status
             ));
         }
+    }
+
+    pub async fn fetch_new_data(
+        &self,
+        id: i64,
+        db: web::Data<JsonDatabase>,
+        categories: Vec<String>,
+        geos: Vec<String>,
+    ) -> Result<ChannelData, String> {
+        let channel = db
+            .get_channel_by_id(id)
+            .await?
+            .ok_or_else(|| format!("Channel with id {} not found", id))?;
+        let result = self.enrich_channel_data(channel, &categories, &geos).await;
+        db.add_or_update_channel(result.clone()).await.ok();
+
+        Ok(result)
     }
 }

@@ -13,3 +13,13 @@ pub struct SimilarChannelRequest {
     pub stel_token: String,
     pub channels_names: Vec<String>,
 }
+
+#[derive(Deserialize)]
+pub struct UpdateChannelCategoryRequest {
+    pub category: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateChannelGeoRequest {
+    pub geo: String,
+}

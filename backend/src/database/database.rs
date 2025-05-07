@@ -75,6 +75,11 @@ impl JsonDatabase {
             .cloned())
     }
 
+    pub async fn get_channel_by_id(&self, id: i64) -> Result<Option<ChannelData>, String> {
+        let data = self.db.lock().await;
+        Ok(data.channels.iter().find(|c| c.id == id).cloned())
+    }
+
     pub async fn add_channel(&self, channel: ChannelData) -> Result<(), String> {
         let mut data = self.db.lock().await;
         data.channels.push(channel);
@@ -97,5 +102,20 @@ impl JsonDatabase {
 
         self.save(&data).await?;
         Ok(())
+    }
+
+    pub async fn update_channel_by_id<F>(&self, id: i64, mut update_fn: F) -> Result<(), String>
+    where
+        F: FnMut(&mut ChannelData),
+    {
+        let mut data = self.db.lock().await;
+
+        if let Some(channel) = data.channels.iter_mut().find(|c| c.id == id) {
+            update_fn(channel);
+            self.save(&data).await?;
+            Ok(())
+        } else {
+            Err(format!("Channel with id {} not found", id))
+        }
     }
 }
