@@ -61,9 +61,38 @@ impl JsonDatabase {
             .collect()
     }
 
+    pub async fn get_channel_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<ChannelData>, String> {
+        let data = self.db.lock().await;
+        Ok(data
+            .channels
+            .iter()
+            .find(|c| c.username == username)
+            .cloned())
+    }
+
     pub async fn add_channel(&self, channel: ChannelData) -> Result<(), String> {
         let mut data = self.db.lock().await;
         data.channels.push(channel);
+        self.save(&data).await?;
+        Ok(())
+    }
+
+    pub async fn add_or_update_channel(&self, channel: ChannelData) -> Result<(), String> {
+        let mut data = self.db.lock().await;
+
+        if let Some(existing_index) = data
+            .channels
+            .iter()
+            .position(|c| c.id == channel.id || c.username == channel.username)
+        {
+            data.channels[existing_index] = channel;
+        } else {
+            data.channels.push(channel);
+        }
+
         self.save(&data).await?;
         Ok(())
     }

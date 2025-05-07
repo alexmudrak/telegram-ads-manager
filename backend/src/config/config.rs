@@ -3,6 +3,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::services::{openai::OpenAiConfig, telegram::TelegramConfig};
+
 use super::models::DatabaseConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,6 +13,8 @@ pub struct AppConfig {
     pub log_level: String,
     pub geos: Vec<String>,
     pub categories: Vec<String>,
+    pub telegram: TelegramConfig,
+    pub openai: OpenAiConfig,
 }
 
 impl AppConfig {
@@ -30,6 +34,25 @@ impl AppConfig {
                 .split(',')
                 .map(|s| s.trim().to_string())
                 .collect(),
+            telegram: TelegramConfig {
+                bot_token: env::var("APP_TELEGRAM_BOT_TOKEN")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+            },
+            openai: OpenAiConfig {
+                api_key: env::var("APP_OPENAI_API_KEY")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+                model: env::var("APP_OPENAI_API_MODEL")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+            },
         })
     }
 }

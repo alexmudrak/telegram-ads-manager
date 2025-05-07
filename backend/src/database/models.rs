@@ -8,7 +8,7 @@ pub struct ChannelData {
     pub photo_element: Option<String>,
     pub category: Option<String>,
     pub description: Option<String>,
-    pub subscribers: Option<String>,
+    pub subscribers: Option<i64>,
     pub geo: Option<String>,
 }
 
