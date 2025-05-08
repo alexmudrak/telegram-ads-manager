@@ -424,6 +424,7 @@ impl TelegramService {
             .get_channel_by_id(id)
             .await?
             .ok_or_else(|| format!("Channel with id {} not found", id))?;
+        // TODO: need to add force update argument
         let result = self.enrich_channel_data(channel, &categories, &geos).await;
         db.add_or_update_channel(result.clone()).await.ok();
 
