@@ -3,6 +3,7 @@ use actix_web::web;
 mod channels;
 mod geos;
 mod categories;
+mod ads;
 
 pub fn routers_v1(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -10,5 +11,6 @@ pub fn routers_v1(cfg: &mut web::ServiceConfig) {
             .configure(channels::routers)
             .configure(geos::routers)
             .configure(categories::routers)
+            .configure(ads::routers)
     );
 }

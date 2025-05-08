@@ -167,4 +167,29 @@ impl OpenAiClient {
     ) -> Result<String, String> {
         self.classify_label("гео", &channel_data, &geos).await
     }
+
+    pub async fn create_ad_message(
+        &self,
+        found_description: &String,
+        product_description: &String,
+    ) -> Result<String, String> {
+        let system_prompt = format!(
+            "Ты — профессиональный маркетолог в telegram ads. Твоя задача — предоставить максимально релевантное рекламное сообщения для каналов с описанием. Используй небольшое количество эмоджи. Сообщение должно быть не более 160 символов."
+        );
+
+        let user_prompt = format!(
+            "Рекламируется продукт: {}. На каналах с описнаием ```{}```",
+            product_description, found_description,
+        );
+
+        let messages = vec![
+            OpenAiMessage::system(system_prompt),
+            OpenAiMessage::user(user_prompt),
+        ];
+
+        match self.send_chat_completion(messages, None, Some(1.0)).await {
+            Ok(result) => Ok(result),
+            Err(e) => Err(e),
+        }
+    }
 }

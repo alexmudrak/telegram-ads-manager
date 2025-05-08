@@ -4,8 +4,8 @@ function App() {
   const [hash, setHash] = useState('');
   const [stelSsid, setStelSsid] = useState('');
   const [stelToken, setStelToken] = useState('');
-  const [channel, setChannel] = useState('');
-  const [channels, setChannels] = useState<any[]>([]);
+  const [channels, setChannels] = useState('');
+  const [channelsList, setChannelsList] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [geos, setGeos] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -19,13 +19,13 @@ function App() {
     const storedHash = localStorage.getItem('telegram_hash');
     const storedStelSsid = localStorage.getItem('stel_ssid');
     const storedStelToken = localStorage.getItem('stel_token');
-    const storedChannel = localStorage.getItem('channel');
+    const storedChannels = localStorage.getItem('channels');
     const storedAdProductDesc = localStorage.getItem('ad_product_desc');
 
     if (storedHash) setHash(storedHash);
     if (storedStelSsid) setStelSsid(storedStelSsid);
     if (storedStelToken) setStelToken(storedStelToken);
-    if (storedChannel) setChannel(storedChannel);
+    if (storedChannels) setChannels(storedChannels);
     if (storedAdProductDesc) setAdProductDesc(storedAdProductDesc);
 
     fetchCategories();
@@ -37,9 +37,9 @@ function App() {
     localStorage.setItem('telegram_hash', hash);
     localStorage.setItem('stel_ssid', stelSsid);
     localStorage.setItem('stel_token', stelToken);
-    localStorage.setItem('channel', channel);
+    localStorage.setItem('channels', channels);
     localStorage.setItem('ad_product_desc', adProductDesc);
-  }, [hash, stelSsid, stelToken, channel, adProductDesc]);
+  }, [hash, stelSsid, stelToken, channels, adProductDesc]);
 
   useEffect(() => {
     if (filterCategory || filterGeo) {
@@ -88,15 +88,15 @@ function App() {
   };
 
   const fetchSimilarChannels = async () => {
-    if (!hash || !stelSsid || !stelToken || !channel) {
+    if (!hash || !stelSsid || !stelToken || !channels) {
       setError('Пожалуйста, заполните все поля');
       return;
     }
 
     setError('');
-    setChannels([]);
+    setChannelsList([]);
 
-    const url = `http://127.0.0.1:8080/api/similar-channels`;
+    const url = `http://127.0.0.1:8080/api/v1/channels/similar`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -106,7 +106,7 @@ function App() {
         hash: hash,
         stel_ssid: stelSsid,
         stel_token: stelToken,
-        channels: channel,
+        channels_names: channels.split(',').map((c) => c.trim()),
       }),
     });
 
@@ -116,12 +116,12 @@ function App() {
     }
 
     const data = await response.json();
-    setChannels(data);
+    setChannelsList(data);
   };
 
   const fetchChannelsByFilter = async () => {
     setError('');
-    setChannels([]);
+    setChannelsList([]);
 
     const params = new URLSearchParams();
 
@@ -147,23 +147,58 @@ function App() {
     }
 
     const data = await response.json();
-    setChannels(data.channels);
+    setChannelsList(data.channels);
+  };
+
+  const fetchChannelData = async (id: number) => {
+    const url = `http://127.0.0.1:8080/api/v1/channels/${id}/get-new-data`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      setError(`Ошибка: ${response.status} ${response.statusText}`);
+      return;
+    }
+
+    const data = await response.json();
+    return data;
   };
 
   const addChannelUsername = (username: string) => {
-    setChannel((prev) => (prev ? `${prev}, ${username}` : username));
+    setChannels((prev) => (prev ? `${prev}, ${username}` : username));
+  };
+
+  const updateChannelData = (id: number) => {
+    try {
+      const updatedChannel = fetchChannelData(id);
+
+      setChannelsList((prev) =>
+        prev.map((channel) => (channel.id === id ? updatedChannel : channel)),
+      );
+    } catch (error) {
+      console.error('Failed to update channel:', error);
+    }
   };
 
   const addAllUsernames = () => {
-    setChannel('');
-    channels.forEach((channel) => {
+    setChannels('');
+    channelsList.forEach((channel) => {
       addChannelUsername(channel.username);
     });
   };
 
+  const clearChannels = () => {
+    setChannels('');
+  };
+
   const updateCategory = async (channelId: string, newCategory: string) => {
     const response = await fetch(
-      `http://127.0.0.1:8080/api/channels/${channelId}/category`,
+      `http://127.0.0.1:8080/api/v1/channels/${channelId}/category`,
       {
         method: 'PUT',
         headers: {
@@ -182,7 +217,7 @@ function App() {
 
   const updateGeo = async (channelId: string, newGeo: string) => {
     const response = await fetch(
-      `http://127.0.0.1:8080/api/channels/${channelId}/geo`,
+      `http://127.0.0.1:8080/api/v1/channels/${channelId}/geo`,
       {
         method: 'PUT',
         headers: {
@@ -200,14 +235,14 @@ function App() {
   };
 
   const generateAdMessage = async () => {
-    const response = await fetch('http://127.0.0.1:8080/api/generate-ad', {
+    const response = await fetch('http://127.0.0.1:8080/api/v1/ads/create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        channels: channel,
-        product_description: adProductDesc,
+        channels_names: channels.split(',').map((c) => c.trim()),
+        description: adProductDesc,
       }),
     });
 
@@ -223,7 +258,7 @@ function App() {
   };
 
   const generateLinks = () => {
-    const selectedChannelUsernames = channel
+    const selectedChannelUsernames = channels
       .split(',')
       .map((name) => name.trim());
 
@@ -264,8 +299,8 @@ function App() {
         <textarea
           className='textarea w-full'
           placeholder='Ваш базовый канал'
-          value={channel}
-          onChange={(e) => setChannel(e.target.value)}
+          value={channels}
+          onChange={(e) => setChannels(e.target.value)}
         />
 
         {error && <p className='text-red-500'>{error}</p>}
@@ -347,6 +382,9 @@ function App() {
         </div>
 
         <div>
+          <button className='btn btn-sm btn-error' onClick={clearChannels}>
+            Очистить
+          </button>
           <button className='btn btn-sm btn-info' onClick={addAllUsernames}>
             Добавить все
           </button>
@@ -366,8 +404,8 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {channels.length > 0 ? (
-                channels.map((channel, index) => (
+              {channelsList.length > 0 ? (
+                channelsList.map((channel, index) => (
                   <tr key={index} className='hover:bg-gray-800'>
                     <th>{channel.id}</th>
                     <td>
@@ -427,6 +465,12 @@ function App() {
                     </td>
                     <td>{channel.subscribers}</td>
                     <td>
+                      <button
+                        className='btn btn-sm btn-warning'
+                        onClick={() => updateChannelData(channel.id)}
+                      >
+                        Обновить
+                      </button>
                       <button
                         className='btn btn-sm btn-secondary'
                         onClick={() => addChannelUsername(channel.username)}
