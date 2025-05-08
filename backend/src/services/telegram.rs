@@ -3,9 +3,13 @@ use std::collections::HashMap;
 use tokio::time::{Duration, sleep};
 
 use actix_web::web;
-use reqwest::Client;
+use reqwest::{
+    Client,
+    header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue},
+};
 
 use crate::{
+    api::v1::ads::models::CreateAdRequest,
     database::{JsonDatabase, models::ChannelData},
     utils::html_parser::extract_subscribers,
 };
@@ -17,6 +21,10 @@ use super::openai::OpenAiClient;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramConfig {
     pub bot_token: String,
+    pub ads_hash: String,
+    pub ads_stel_ssid: String,
+    pub ads_stel_token: String,
+    pub ads_stel_owner: String,
 }
 #[derive(Deserialize, Debug)]
 struct TelegramSimilarChatResponse {
@@ -49,26 +57,29 @@ struct TelegramChat {
 
 #[derive(Clone, Debug)]
 pub struct TelegramService {
+    pub bot_token: String,
     pub hash: Option<String>,
     pub stel_ssid: Option<String>,
     pub stel_token: Option<String>,
-    pub bot_token: String,
+    pub stel_owner: Option<String>,
     openai_service: Option<OpenAiClient>,
 }
 
 impl TelegramService {
     pub fn new(
+        bot_token: String,
         hash: Option<String>,
         stel_ssid: Option<String>,
         stel_token: Option<String>,
-        bot_token: String,
+        stel_owner: Option<String>,
         openai_service: Option<OpenAiClient>,
     ) -> Self {
         TelegramService {
+            bot_token,
             hash,
             stel_ssid,
             stel_token,
-            bot_token,
+            stel_owner,
             openai_service,
         }
     }
@@ -417,5 +428,85 @@ impl TelegramService {
         db.add_or_update_channel(result.clone()).await.ok();
 
         Ok(result)
+    }
+
+    pub async fn create_ad_draft(&self, ad_data: CreateAdRequest) -> Result<String, String> {
+        let hash = self.hash.as_ref().ok_or("Missing hash")?;
+        let stel_ssid = self.stel_ssid.as_ref().ok_or("Missing stel_ssid")?;
+        let stel_token = self.stel_token.as_ref().ok_or("Missing stel_token")?;
+        let stel_owner = self.stel_owner.as_ref().ok_or("Missing stel_owner")?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/json, text/javascript, */*; q=0.01"),
+        );
+        headers.insert(
+            ACCEPT_LANGUAGE,
+            HeaderValue::from_static("en-US,en;q=0.9,ru;q=0.8"),
+        );
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded; charset=UTF-8"),
+        );
+
+        let cookie_str = format!("stel_ssid={}; stel_token={}", stel_ssid, stel_token);
+        headers.insert(COOKIE, HeaderValue::from_str(&cookie_str).unwrap());
+
+        let title = "test title";
+        let text = ad_data.text.to_string();
+        let promote_url = ad_data.promote_url.to_string();
+        let cpm = ad_data.cpm.to_string();
+        let views_per_user = ad_data.views_per_user.to_string();
+        let budget = ad_data.budget.to_string();
+        let daily_budget = ad_data.daily_budget.to_string();
+        let active = if ad_data.active { "1" } else { "0" };
+        let target_type = ad_data.target_type.as_str();
+        let channels = ad_data
+            .channels
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<String>>()
+            .join(";");
+        let method = ad_data.method.as_str();
+
+        let mut form_data = HashMap::new();
+        form_data.insert("owner_id", stel_owner.as_str());
+        form_data.insert("title", title);
+        form_data.insert("text", &text);
+        form_data.insert("promote_url", &promote_url);
+        form_data.insert("website_name", "");
+        form_data.insert("website_photo", "");
+        form_data.insert("media", "");
+        form_data.insert("ad_info", "");
+        form_data.insert("cpm", &cpm);
+        form_data.insert("views_per_user", &views_per_user);
+        form_data.insert("budget", &budget);
+        form_data.insert("daily_budget", &daily_budget);
+        form_data.insert("active", &active);
+        form_data.insert("target_type", target_type);
+        form_data.insert("channels", &channels);
+        form_data.insert("bots", "");
+        form_data.insert("search_queries", "");
+        form_data.insert("method", method);
+
+        let url = format!("https://ads.telegram.org/api?hash={}", hash);
+        let client = Client::new();
+
+        let response = client
+            .post(url)
+            .headers(headers)
+            .form(&form_data)
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Error sending request to Telegram API: {}", e);
+                e.to_string()
+            })?;
+        let response_body = response.text().await.unwrap_or_else(|_| String::new());
+        println!("Body: {}", response_body);
+
+        // TODO: Need to handle the response json
+        Ok("TEST".to_string())
     }
 }

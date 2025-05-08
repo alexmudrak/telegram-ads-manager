@@ -8,9 +8,6 @@ pub struct ChannelQuery {
 
 #[derive(Deserialize)]
 pub struct SimilarChannelRequest {
-    pub hash: String,
-    pub stel_ssid: String,
-    pub stel_token: String,
     pub channels_names: Vec<String>,
 }
 

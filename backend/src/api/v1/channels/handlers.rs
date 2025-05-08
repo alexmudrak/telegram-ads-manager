@@ -1,7 +1,5 @@
 use crate::{
-    config::AppConfig,
-    database::JsonDatabase,
-    services::{openai::OpenAiClient, telegram::TelegramService},
+    config::AppConfig, database::JsonDatabase, services::telegram::TelegramService,
     utils::text::TextUtils,
 };
 
@@ -31,15 +29,8 @@ pub async fn get_similar_channels(
     db: web::Data<JsonDatabase>,
     req: web::Json<SimilarChannelRequest>,
     config: web::Data<AppConfig>,
+    telegram_service: web::Data<TelegramService>,
 ) -> HttpResponse {
-    let openai_service = OpenAiClient::new(&config.openai.model, &config.openai.api_key);
-    let telegram_service = TelegramService::new(
-        Some(req.hash.clone()),
-        Some(req.stel_ssid.clone()),
-        Some(req.stel_token.clone()),
-        config.telegram.bot_token.clone(),
-        Some(openai_service.clone()),
-    );
     let normalized_channels = TextUtils::normalize_names(&req.channels_names);
     match telegram_service
         .check_and_add_channels(db.clone(), &normalized_channels)
@@ -102,16 +93,9 @@ pub async fn get_new_data(
     id: web::Path<i64>,
     db: web::Data<JsonDatabase>,
     config: web::Data<AppConfig>,
+    telegram_service: web::Data<TelegramService>,
 ) -> HttpResponse {
     let id = id.into_inner();
-    let openai_service = OpenAiClient::new(&config.openai.model, &config.openai.api_key);
-    let telegram_service = TelegramService::new(
-        None,
-        None,
-        None,
-        config.telegram.bot_token.clone(),
-        Some(openai_service.clone()),
-    );
 
     match telegram_service
         .fetch_new_data(

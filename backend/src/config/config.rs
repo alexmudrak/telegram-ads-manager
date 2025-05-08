@@ -40,6 +40,26 @@ impl AppConfig {
                     .split(',')
                     .map(|s| s.trim().to_string())
                     .collect(),
+                ads_hash: env::var("APP_TELEGRAM_ADS_HASH")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+                ads_stel_ssid: env::var("APP_TELEGRAM_STEL_SSID")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+                ads_stel_token: env::var("APP_TELEGRAM_STEL_TOKEN")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+                ads_stel_owner: env::var("APP_TELEGRAM_STEL_OWNER")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
             },
             openai: OpenAiConfig {
                 api_key: env::var("APP_OPENAI_API_KEY")
