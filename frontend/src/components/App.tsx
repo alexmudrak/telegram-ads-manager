@@ -1,9 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function App() {
-  const [hash, setHash] = useState('');
-  const [stelSsid, setStelSsid] = useState('');
-  const [stelToken, setStelToken] = useState('');
   const [channels, setChannels] = useState('');
   const [channelsList, setChannelsList] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -14,17 +11,14 @@ function App() {
   const [generatedAdMessage, setGeneratedAdMessage] = useState('');
   const [filterCategory, setFilterCategory] = useState(null);
   const [filterGeo, setFilterGeo] = useState(null);
+  const [isTextareaOutOfView, setIsTextareaOutOfView] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(false);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
-    const storedHash = localStorage.getItem('telegram_hash');
-    const storedStelSsid = localStorage.getItem('stel_ssid');
-    const storedStelToken = localStorage.getItem('stel_token');
     const storedChannels = localStorage.getItem('channels');
     const storedAdProductDesc = localStorage.getItem('ad_product_desc');
 
-    if (storedHash) setHash(storedHash);
-    if (storedStelSsid) setStelSsid(storedStelSsid);
-    if (storedStelToken) setStelToken(storedStelToken);
     if (storedChannels) setChannels(storedChannels);
     if (storedAdProductDesc) setAdProductDesc(storedAdProductDesc);
 
@@ -34,12 +28,25 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('telegram_hash', hash);
-    localStorage.setItem('stel_ssid', stelSsid);
-    localStorage.setItem('stel_token', stelToken);
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsTextareaOutOfView(!entry.isIntersecting);
+    });
+
+    if (textareaRef.current) {
+      observer.observe(textareaRef.current);
+    }
+
+    return () => {
+      if (textareaRef.current) {
+        observer.unobserve(textareaRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem('channels', channels);
     localStorage.setItem('ad_product_desc', adProductDesc);
-  }, [hash, stelSsid, stelToken, channels, adProductDesc]);
+  }, [channels, adProductDesc]);
 
   useEffect(() => {
     if (filterCategory || filterGeo) {
@@ -88,11 +95,12 @@ function App() {
   };
 
   const fetchSimilarChannels = async () => {
-    if (!hash || !stelSsid || !stelToken || !channels) {
+    if (!channels) {
       setError('Пожалуйста, заполните все поля');
       return;
     }
 
+    setIsDataLoading(false);
     setError('');
     setChannelsList([]);
 
@@ -103,9 +111,6 @@ function App() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        hash: hash,
-        stel_ssid: stelSsid,
-        stel_token: stelToken,
         channels_names: channels.split(',').map((c) => c.trim()),
       }),
     });
@@ -117,9 +122,11 @@ function App() {
 
     const data = await response.json();
     setChannelsList(data);
+    setIsDataLoading(true);
   };
 
   const fetchChannelsByFilter = async () => {
+    setIsDataLoading(false);
     setError('');
     setChannelsList([]);
 
@@ -148,9 +155,11 @@ function App() {
 
     const data = await response.json();
     setChannelsList(data.channels);
+    setIsDataLoading(true);
   };
 
   const fetchChannelData = async (id: number) => {
+    setIsDataLoading(false);
     const url = `http://127.0.0.1:8080/api/v1/channels/${id}/get-new-data`;
 
     const response = await fetch(url, {
@@ -166,6 +175,7 @@ function App() {
     }
 
     const data = await response.json();
+    setIsDataLoading(true);
     return data;
   };
 
@@ -173,9 +183,10 @@ function App() {
     setChannels((prev) => (prev ? `${prev}, ${username}` : username));
   };
 
-  const updateChannelData = (id: number) => {
+  const updateChannelData = async (id: number) => {
     try {
-      const updatedChannel = fetchChannelData(id);
+      const updatedChannel = await fetchChannelData(id);
+      console.log(updatedChannel);
 
       setChannelsList((prev) =>
         prev.map((channel) => (channel.id === id ? updatedChannel : channel)),
@@ -275,33 +286,38 @@ function App() {
         Получить похожие каналы
       </h1>
       <div className='grid grid-cols-1 gap-4 mb-6'>
-        <input
-          type='text'
-          placeholder='Ваш Telegram Ads Hash'
-          className='input input-bordered w-full'
-          value={hash}
-          onChange={(e) => setHash(e.target.value)}
-        />
-        <input
-          type='text'
-          placeholder='Ваш Stel SSID'
-          className='input input-bordered w-full'
-          value={stelSsid}
-          onChange={(e) => setStelSsid(e.target.value)}
-        />
-        <input
-          type='text'
-          placeholder='Ваш Stel Token'
-          className='input input-bordered w-full'
-          value={stelToken}
-          onChange={(e) => setStelToken(e.target.value)}
-        />
         <textarea
+          ref={textareaRef}
           className='textarea w-full'
           placeholder='Ваш базовый канал'
           value={channels}
           onChange={(e) => setChannels(e.target.value)}
         />
+
+        {isTextareaOutOfView && (
+          <div className='fixed top-5 left-15 z-50 bg-base-200 p-1 rounded shadow-lg w-5/6 border-gray-500 border-1'>
+            <textarea
+              className='textarea textarea-bordered w-full'
+              placeholder='Ваш базовый канал'
+              value={channels}
+              onChange={(e) => setChannels(e.target.value)}
+            />
+            <div className='flex gap-2 my-2'>
+              <button
+                className='btn btn-sm btn-error flex-1'
+                onClick={clearChannels}
+              >
+                Очистить
+              </button>
+              <button
+                className='btn btn-sm btn-primary flex-1'
+                onClick={fetchSimilarChannels}
+              >
+                Получить похожие каналы
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && <p className='text-red-500'>{error}</p>}
       </div>
@@ -330,7 +346,7 @@ function App() {
           className='textarea w-full my-2'
           placeholder='Рекламный текст'
           value={generatedAdMessage}
-          readOnly
+          onChange={(e) => setGeneratedAdMessage(e.target.value)}
         />
 
         <button
@@ -381,115 +397,128 @@ function App() {
           )}
         </div>
 
-        <div>
-          <button className='btn btn-sm btn-error' onClick={clearChannels}>
-            Очистить
-          </button>
-          <button className='btn btn-sm btn-info' onClick={addAllUsernames}>
-            Добавить все
-          </button>
-        </div>
+        {isDataLoading ? (
+          <>
+            <div>
+              <button className='btn btn-sm btn-info' onClick={addAllUsernames}>
+                Добавить все
+              </button>
+            </div>
 
-        <div className='overflow-x-auto mt-6'>
-          <table className='table w-full'>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Фото</th>
-                <th>Название</th>
-                <th>Категория</th>
-                <th>Гео</th>
-                <th>Аудитория</th>
-                <th>Действие</th>
-              </tr>
-            </thead>
-            <tbody>
-              {channelsList.length > 0 ? (
-                channelsList.map((channel, index) => (
-                  <tr key={index} className='hover:bg-gray-800'>
-                    <th>{channel.id}</th>
-                    <td>
-                      <div
-                        className='mask mask-squircle w-10'
-                        data-tip={channel.description}
-                        dangerouslySetInnerHTML={{
-                          __html: channel.photo_element,
-                        }}
-                      />
-                    </td>
-                    <td
-                      className='tooltip tooltip-right'
-                      data-tip={channel.description}
-                    >
-                      <a
-                        href={`https://t.me/s/${channel.username}`}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                      >
-                        <span
-                          dangerouslySetInnerHTML={{ __html: channel.title }}
-                        />
-                      </a>
-                    </td>
-                    <td>
-                      <select
-                        defaultValue={channel.category}
-                        className='select select-ghost'
-                        onChange={(e) =>
-                          updateCategory(channel.id, e.target.value)
-                        }
-                      >
-                        <option disabled={true}>Выберите категорию</option>
-                        {categories.map((category, index) => (
-                          <option key={index} value={category}>
-                            {category}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        defaultValue={channel.geo || ''}
-                        className='select select-ghost'
-                        onChange={(e) => updateGeo(channel.id, e.target.value)}
-                      >
-                        <option value='' disabled={true}>
-                          Выберите гео
-                        </option>
-                        {geos.map((geo, index) => (
-                          <option key={index} value={geo}>
-                            {geo}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>{channel.subscribers}</td>
-                    <td>
-                      <button
-                        className='btn btn-sm btn-warning'
-                        onClick={() => updateChannelData(channel.id)}
-                      >
-                        Обновить
-                      </button>
-                      <button
-                        className='btn btn-sm btn-secondary'
-                        onClick={() => addChannelUsername(channel.username)}
-                      >
-                        Добавить
-                      </button>
-                    </td>
+            <div className='overflow-x-auto mt-6'>
+              <table className='table w-full'>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>ID</th>
+                    <th>Фото</th>
+                    <th>Название</th>
+                    <th>Имя</th>
+                    <th>Категория</th>
+                    <th>Гео</th>
+                    <th>Аудитория</th>
+                    <th>Действие</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className='text-center'>
-                    Нет данных
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {channelsList.length > 0 ? (
+                    channelsList.map((channel, index) => (
+                      <tr key={channel.id} className='hover:bg-gray-800'>
+                        <th>{index + 1}</th>
+                        <th>{channel.id}</th>
+                        <td>
+                          <div
+                            className='mask mask-squircle w-10'
+                            data-tip={channel.description}
+                            dangerouslySetInnerHTML={{
+                              __html: channel.photo_element,
+                            }}
+                          />
+                        </td>
+                        <td
+                          className='tooltip tooltip-right'
+                          data-tip={channel.description}
+                        >
+                          <a
+                            href={`https://t.me/s/${channel.username}`}
+                            target='_blank'
+                            rel='noopener noreferrer'
+                          >
+                            <span
+                              dangerouslySetInnerHTML={{
+                                __html: channel.title,
+                              }}
+                            />
+                          </a>
+                        </td>
+                        <td>{channel.username}</td>
+                        <td>
+                          <select
+                            defaultValue={channel.category}
+                            className='select select-ghost'
+                            onChange={(e) =>
+                              updateCategory(channel.id, e.target.value)
+                            }
+                          >
+                            <option disabled={true}>Выберите категорию</option>
+                            {categories.map((category, index) => (
+                              <option key={index} value={category}>
+                                {category}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            defaultValue={channel.geo || ''}
+                            className='select select-ghost'
+                            onChange={(e) =>
+                              updateGeo(channel.id, e.target.value)
+                            }
+                          >
+                            <option value='' disabled={true}>
+                              Выберите гео
+                            </option>
+                            {geos.map((geo, index) => (
+                              <option key={index} value={geo}>
+                                {geo}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>{channel.subscribers}</td>
+                        <td>
+                          <button
+                            className='btn btn-sm btn-warning'
+                            onClick={() => updateChannelData(channel.id)}
+                          >
+                            Обновить
+                          </button>
+                          <button
+                            className='btn btn-sm btn-secondary'
+                            onClick={() => addChannelUsername(channel.username)}
+                          >
+                            Добавить
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className='text-center'>
+                        Нет данных
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className='flex justify-center items-center h-32'>
+            <span className='loading loading-infinity loading-xl'></span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -189,8 +189,9 @@ impl TelegramService {
         mut channel: ChannelData,
         categories: &[String],
         geos: &[String],
+        force: bool,
     ) -> ChannelData {
-        if channel.description.is_none() {
+        if channel.description.is_none() || force {
             if let Ok(fetched) = self.fetch_channel_data(&channel.username).await {
                 channel.description = fetched.description;
             }
@@ -198,7 +199,7 @@ impl TelegramService {
 
         let combined_description = format!("{:?} {:?}", channel.title, channel.description);
 
-        if channel.category.is_none() {
+        if channel.category.is_none() || force {
             if let Some(openai) = &self.openai_service {
                 if let Ok(category) = openai
                     .fetch_chat_category(combined_description.clone(), categories.to_vec())
@@ -209,7 +210,7 @@ impl TelegramService {
             }
         }
 
-        if channel.geo.is_none() {
+        if channel.geo.is_none() || force {
             if let Some(openai) = &self.openai_service {
                 if let Ok(geo) = openai
                     .fetch_chat_geo(combined_description, geos.to_vec())
@@ -291,7 +292,7 @@ impl TelegramService {
                     let mut updated = Vec::new();
                     for channel in chunk {
                         let enriched = self
-                            .enrich_channel_data(channel, &categories_clone, &geos_clone)
+                            .enrich_channel_data(channel, &categories_clone, &geos_clone, false)
                             .await;
 
                         db.add_or_update_channel(enriched.clone()).await.ok();
@@ -425,7 +426,7 @@ impl TelegramService {
             .await?
             .ok_or_else(|| format!("Channel with id {} not found", id))?;
         // TODO: need to add force update argument
-        let result = self.enrich_channel_data(channel, &categories, &geos).await;
+        let result = self.enrich_channel_data(channel, &categories, &geos, true).await;
         db.add_or_update_channel(result.clone()).await.ok();
 
         Ok(result)
