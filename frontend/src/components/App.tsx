@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+const API_URL = 'http://127.0.0.1:8080';
+
 function App() {
   const [channels, setChannels] = useState('');
   const [channelsList, setChannelsList] = useState<any[]>([]);
@@ -71,7 +73,7 @@ function App() {
   };
 
   const fetchCategories = async () => {
-    const response = await fetch('http://127.0.0.1:8080/api/v1/categories/');
+    const response = await fetch(`${API_URL}/api/v1/categories/`);
     if (!response.ok) {
       console.error(
         `Ошибка при загрузке категорий: ${response.status} ${response.statusText}`,
@@ -83,7 +85,7 @@ function App() {
   };
 
   const fetchGeos = async () => {
-    const response = await fetch('http://127.0.0.1:8080/api/v1/geos/');
+    const response = await fetch(`${API_URL}/api/v1/geos/`);
     if (!response.ok) {
       console.error(
         `Ошибка при загрузке гео: ${response.status} ${response.statusText}`,
@@ -104,7 +106,7 @@ function App() {
     setError('');
     setChannelsList([]);
 
-    const url = `http://127.0.0.1:8080/api/v1/channels/similar`;
+    const url = `${API_URL}/api/v1/channels/similar`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -139,7 +141,7 @@ function App() {
     if (filterGeo) {
       params.append('geo', filterGeo);
     }
-    const url = `http://127.0.0.1:8080/api/v1/channels/?${params.toString()}`;
+    const url = `${API_URL}/api/v1/channels/?${params.toString()}`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -160,7 +162,7 @@ function App() {
 
   const fetchChannelData = async (id: number) => {
     setIsDataLoading(false);
-    const url = `http://127.0.0.1:8080/api/v1/channels/${id}/get-new-data`;
+    const url = `${API_URL}/api/v1/channels/${id}/get-new-data`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -209,7 +211,7 @@ function App() {
 
   const updateCategory = async (channelId: string, newCategory: string) => {
     const response = await fetch(
-      `http://127.0.0.1:8080/api/v1/channels/${channelId}/category`,
+      `${API_URL}/api/v1/channels/${channelId}/category`,
       {
         method: 'PUT',
         headers: {
@@ -228,7 +230,7 @@ function App() {
 
   const updateGeo = async (channelId: string, newGeo: string) => {
     const response = await fetch(
-      `http://127.0.0.1:8080/api/v1/channels/${channelId}/geo`,
+      `${API_URL}/api/v1/channels/${channelId}/geo`,
       {
         method: 'PUT',
         headers: {
@@ -246,7 +248,7 @@ function App() {
   };
 
   const generateAdMessage = async () => {
-    const response = await fetch('http://127.0.0.1:8080/api/v1/ads/generate', {
+    const response = await fetch(`${API_URL}/api/v1/ads/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -294,8 +296,8 @@ function App() {
           onChange={(e) => setChannels(e.target.value)}
         />
 
-        {isTextareaOutOfView && (
-          <div className='fixed top-5 left-15 z-50 bg-base-200 p-1 rounded shadow-lg w-5/6 border-gray-500 border-1'>
+        {isTextareaOutOfView && channels && (
+          <div className='fixed top-5 left-15 z-50 bg-base-200 p-1 rounded shadow-lg w-xl border-gray-500 border-1'>
             <textarea
               className='textarea textarea-bordered w-full'
               placeholder='Ваш базовый канал'
