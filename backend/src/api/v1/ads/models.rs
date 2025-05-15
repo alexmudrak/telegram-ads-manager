@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+
+
 #[derive(Deserialize)]
 pub struct GenerateAdMessageRequest {
     pub description: String,
@@ -16,7 +18,7 @@ pub struct CreateAdRequest {
     pub daily_budget: f32,
     pub active: bool,
     pub target_type: AdTargetType,
-    pub channels: Vec<f64>,
+    pub channels: Vec<String>,
     pub method: AdMethodType,
 }
 

@@ -7,6 +7,7 @@ use crate::{
     config::AppConfig,
     database::JsonDatabase,
     services::{openai::OpenAiClient, telegram::TelegramService},
+    utils::text::TextUtils,
 };
 
 use super::models::{CreateAdRequest, GenerateAdMessageRequest};
@@ -47,8 +48,20 @@ pub async fn create_ad(
     req: web::Json<CreateAdRequest>,
     telegram_service: web::Data<TelegramService>,
 ) -> HttpResponse {
-    match telegram_service.create_ad_draft(req.into_inner()).await {
-        Ok(_) => HttpResponse::Ok().body("DONE"),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to create Telegram Ad"),
+    // TODO: Get usernames ID's
+    match telegram_service.create_ad(req.into_inner()).await {
+        Ok(message) => HttpResponse::Ok().json(json!({ "status": "success", "message": message })),
+        Err(error_message) => {
+            if let Some((field, msg)) = TextUtils::parse_validation_error(&error_message) {
+                HttpResponse::BadRequest().json(json!({
+                    "field": field,
+                    "error": msg
+                }))
+            } else {
+                HttpResponse::InternalServerError().json(json!({
+                    "error": error_message
+                }))
+            }
+        }
     }
 }

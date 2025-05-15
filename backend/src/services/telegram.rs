@@ -26,10 +26,19 @@ pub struct TelegramConfig {
     pub ads_stel_token: String,
     pub ads_stel_owner: String,
 }
+
 #[derive(Deserialize, Debug)]
 struct TelegramSimilarChatResponse {
     ok: bool,
     channels: Option<Vec<TelegramSimilarChat>>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub enum TelegramCreateAdResponse {
+    SuccessWithRedirect { ok: bool, redirect_to: String },
+    SuccessWithDraft { ok: bool, has_draft: bool },
+    ValidationError { field: String, error: String },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -426,13 +435,15 @@ impl TelegramService {
             .await?
             .ok_or_else(|| format!("Channel with id {} not found", id))?;
         // TODO: need to add force update argument
-        let result = self.enrich_channel_data(channel, &categories, &geos, true).await;
+        let result = self
+            .enrich_channel_data(channel, &categories, &geos, true)
+            .await;
         db.add_or_update_channel(result.clone()).await.ok();
 
         Ok(result)
     }
 
-    pub async fn create_ad_draft(&self, ad_data: CreateAdRequest) -> Result<String, String> {
+    pub async fn create_ad(&self, ad_data: CreateAdRequest) -> Result<String, String> {
         let hash = self.hash.as_ref().ok_or("Missing hash")?;
         let stel_ssid = self.stel_ssid.as_ref().ok_or("Missing stel_ssid")?;
         let stel_token = self.stel_token.as_ref().ok_or("Missing stel_token")?;
@@ -505,10 +516,40 @@ impl TelegramService {
                 error!("Error sending request to Telegram API: {}", e);
                 e.to_string()
             })?;
+
+        let status = response.status();
         let response_body = response.text().await.unwrap_or_else(|_| String::new());
+
         println!("Body: {}", response_body);
 
-        // TODO: Need to handle the response json
-        Ok("TEST".to_string())
+        if status.is_success() {
+            match serde_json::from_str::<TelegramCreateAdResponse>(&response_body) {
+                Ok(parsed) => match parsed {
+                    TelegramCreateAdResponse::SuccessWithRedirect { redirect_to, ok } => {
+                        Ok(format!(
+                            "Ad created successfully - {}. Redirect to: {}",
+                            ok, redirect_to
+                        ))
+                    }
+                    TelegramCreateAdResponse::SuccessWithDraft { has_draft, ok } => {
+                        if has_draft {
+                            Ok(format!("Ad saved as draft - {}.", ok))
+                        } else {
+                            Ok("Ad saved successfully, but no draft detected.".to_string())
+                        }
+                    }
+                    TelegramCreateAdResponse::ValidationError { field, error } => {
+                        Err(format!("Validation error in field '{}': {}", field, error))
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to parse response JSON: {}", e);
+                    Err("Failed to parse response".to_string())
+                }
+            }
+        } else {
+            error!("Non-success HTTP status: {}", status);
+            Err(format!("HTTP error: {}. Body: {}", status, response_body))
+        }
     }
 }
