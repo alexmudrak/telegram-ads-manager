@@ -1,10 +1,11 @@
 import * as api from './api/api';
 import { AdMessageGenerator } from './components/AdMessageGenerator';
 import { ChannelsTable } from './components/ChannelsTable';
+import { CreateAdForm } from './components/CreateAdForm';
 import { FilterButtons } from './components/FilterButtons';
 import { FloatingTextarea } from './components/FloatingTextarea';
-import { LinksGenerator } from './components/LinksGenerator';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { Modal } from './components/Modal';
 import { useIntersectionObserver } from './hooks/useIntersectionObserver';
 import { Channel } from './types/types';
 import { loadFromStorage, saveToStorage } from './utils/storage';
@@ -12,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefObject } from 'react';
 
 const App = () => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [channels, setChannels] = useState<string>(() =>
     loadFromStorage('channels', ''),
   );
@@ -19,7 +21,6 @@ const App = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [geos, setGeos] = useState<string[]>([]);
   const [error, setError] = useState<string>('');
-  const [generatedLinks, setGeneratedLinks] = useState<string>('');
   const [adProductDesc, setAdProductDesc] = useState<string>(() =>
     loadFromStorage('ad_product_desc', ''),
   );
@@ -71,6 +72,7 @@ const App = () => {
       const data = await api.fetchSimilarChannels(channelNames);
       setChannelsList(data);
       setIsDataLoading(true);
+      setIsModalOpen(true);
     } catch (error) {
       console.error('Error fetching similar channels:', error);
       setError((error as Error).message);
@@ -157,14 +159,6 @@ const App = () => {
     }
   }, [channels, adProductDesc]);
 
-  const generateLinks = useCallback(() => {
-    const channelUsernames = channels.split(',').map((name) => name.trim());
-    const links = channelUsernames
-      .map((username) => `https://t.me/${username}`)
-      .join(', ');
-    setGeneratedLinks(links);
-  }, [channels]);
-
   useEffect(() => {
     const initializeData = async () => {
       try {
@@ -203,13 +197,18 @@ const App = () => {
       </h1>
 
       <div className='grid grid-cols-1 gap-4 mb-6'>
-        <textarea
-          ref={textareaRef}
-          className='textarea w-full'
-          placeholder='Channels to Ad'
-          value={channels}
-          onChange={(e) => setChannels(e.target.value)}
-        />
+        <h2 className='text-xl font-semibold'>1. Select Channels</h2>
+
+        <label className='floating-label'>
+          <span>Channels to Ad</span>
+          <textarea
+            ref={textareaRef}
+            className='textarea w-full'
+            placeholder='Channels to Ad'
+            value={channels}
+            onChange={(e) => setChannels(e.target.value)}
+          />
+        </label>
 
         {!isIntersecting && (
           <FloatingTextarea
@@ -221,30 +220,15 @@ const App = () => {
         )}
 
         {error && <p className='text-red-500'>{error}</p>}
-      </div>
-
-      <LinksGenerator
-        generatedLinks={generatedLinks}
-        setGeneratedLinks={setGeneratedLinks}
-        generateLinks={generateLinks}
-      />
-
-      <AdMessageGenerator
-        adProductDesc={adProductDesc}
-        setAdProductDesc={setAdProductDesc}
-        generatedAdMessage={generatedAdMeddsge}
-        setGeneratedAdMessage={setGeneratedAdMessage}
-        generateAdMessage={handleGenerateAdMessage}
-      />
-
-      <div className='my-4'>
         <button
           className='btn btn-primary w-full'
           onClick={fetchSimilarChannels}
         >
-          Fetch similar channels
+          Find similar channels
         </button>
+      </div>
 
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <FilterButtons
           categories={categories}
           geos={geos}
@@ -268,7 +252,17 @@ const App = () => {
         ) : (
           <LoadingSpinner />
         )}
-      </div>
+      </Modal>
+
+      <AdMessageGenerator
+        adProductDesc={adProductDesc}
+        setAdProductDesc={setAdProductDesc}
+        generatedAdMessage={generatedAdMeddsge}
+        setGeneratedAdMessage={setGeneratedAdMessage}
+        generateAdMessage={handleGenerateAdMessage}
+      />
+
+      <CreateAdForm channels={channels} adText={generatedAdMeddsge} setError={setError} />
     </div>
   );
 };

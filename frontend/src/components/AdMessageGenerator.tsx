@@ -17,19 +17,27 @@ export const AdMessageGenerator: React.FC<AdMessageGeneratorProps> = ({
 }) => {
   return (
     <div className='my-4'>
-      <textarea
-        className='textarea w-full my-2'
-        placeholder='Product description'
-        value={adProductDesc}
-        onChange={(e) => setAdProductDesc(e.target.value)}
-      />
+      <h2 className='text-xl font-semibold'>2. Generate Ad Message</h2>
 
-      <textarea
-        className='textarea w-full my-2'
-        placeholder='Ad message'
-        value={generatedAdMessage}
-        onChange={(e) => setGeneratedAdMessage(e.target.value)}
-      />
+      <label className='floating-label my-4'>
+        <span>Product description</span>
+        <textarea
+          className='textarea w-full'
+          placeholder='Product description'
+          value={adProductDesc}
+          onChange={(e) => setAdProductDesc(e.target.value)}
+        />
+        </label>
+
+      <label className='floating-label my-4'>
+        <span>Generated Ad message</span>
+        <textarea
+          className='textarea w-full'
+          placeholder='Ad message'
+          value={generatedAdMessage}
+          onChange={(e) => setGeneratedAdMessage(e.target.value)}
+        />
+      </label>
 
       <button
         className='btn btn-outline w-full my-1'

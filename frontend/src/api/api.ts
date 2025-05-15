@@ -1,4 +1,4 @@
-import { Channel } from '../types/types';
+import { Channel, CreateAdRequest } from '../types/types';
 
 const API_BASE_URL = 'http://127.0.0.1:8080/api/v1';
 
@@ -11,7 +11,8 @@ const API_ENDPOINT = {
   updateChannelCategory: (id: number) =>
     `${API_BASE_URL}/channels/${id}/category`,
   updateGeoCategory: (id: number) => `${API_BASE_URL}/channels/${id}/geo`,
-  generateAd: `${API_BASE_URL}/ads/generate`,
+  generateAdMessage: `${API_BASE_URL}/ads/generate`,
+  createAd: `${API_BASE_URL}/ads/`,
 };
 
 async function apiFetch<TResponse, TBody = undefined>(
@@ -36,7 +37,22 @@ async function apiFetch<TResponse, TBody = undefined>(
   });
 
   if (!response.ok) {
-    throw new Error(`API error: ${response.status} ${response.statusText}`);
+    let errorMessage = `API error: ${response.status} ${response.statusText}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.error) {
+        errorMessage = errorBody.error;
+      } else if (typeof errorBody === 'string') {
+        errorMessage = errorBody;
+      }
+    } catch {
+      const text = await response.text();
+      if (text) {
+        errorMessage = text;
+      }
+    }
+
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -87,7 +103,14 @@ export const generateAdMessage = (
   apiFetch<
     { ad_message: string },
     { channels_names: string[]; description: string }
-  >(API_ENDPOINT.generateAd, 'POST', {
+  >(API_ENDPOINT.generateAdMessage, 'POST', {
     channels_names: channelNames,
     description: description,
   });
+
+export const createAd = (payload: CreateAdRequest) =>
+  apiFetch<{ status: string }, CreateAdRequest>(
+    API_ENDPOINT.createAd,
+    'POST',
+    payload,
+  );

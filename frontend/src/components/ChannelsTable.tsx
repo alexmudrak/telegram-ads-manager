@@ -30,7 +30,7 @@ export const ChannelsTable: React.FC<ChannelsTableProps> = ({
         </button>
       </div>
 
-      <div className='overflow-x-auto mt-6'>
+      <div className='overflow-x-auto overflow-y-auto mt-6'>
         <table className='table w-full'>
           <thead>
             <tr>
