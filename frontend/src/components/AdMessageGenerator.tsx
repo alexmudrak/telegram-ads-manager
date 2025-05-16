@@ -1,20 +1,44 @@
-import React from 'react';
+import * as api from '../api/api';
+import { loadFromStorage, saveToStorage } from '../utils/storage';
+import { useCallback, useEffect, useState } from 'react';
 
 interface AdMessageGeneratorProps {
-  adProductDesc: string;
-  setAdProductDesc: (desc: string) => void;
+  channels: string;
   generatedAdMessage: string;
   setGeneratedAdMessage: (message: string) => void;
-  generateAdMessage: () => void;
+  setError: (error: string) => void;
 }
 
 export const AdMessageGenerator: React.FC<AdMessageGeneratorProps> = ({
-  adProductDesc,
-  setAdProductDesc,
+  channels,
   generatedAdMessage,
   setGeneratedAdMessage,
-  generateAdMessage,
+  setError,
 }) => {
+  const [adProductDesc, setAdProductDesc] = useState<string>(() =>
+    loadFromStorage('ad_product_desc', ''),
+  );
+
+  const generateAdMessage = useCallback(async () => {
+    if (!channels.trim() || !adProductDesc.trim()) {
+      setError('Please fill all field');
+      return;
+    }
+
+    try {
+      const channelNames = channels.split(',').map((c) => c.trim());
+      const result = await api.generateAdMessage(channelNames, adProductDesc);
+      setGeneratedAdMessage(result.ad_message);
+    } catch (error) {
+      console.error('Error generating ad message:', error);
+      setError((error as Error).message);
+    }
+  }, [channels, adProductDesc, setError, setGeneratedAdMessage]);
+
+  useEffect(() => {
+    saveToStorage('ad_product_desc', adProductDesc);
+  }, [adProductDesc]);
+
   return (
     <div className='my-4'>
       <h2 className='text-xl font-semibold'>2. Generate Ad Message</h2>
@@ -27,7 +51,7 @@ export const AdMessageGenerator: React.FC<AdMessageGeneratorProps> = ({
           value={adProductDesc}
           onChange={(e) => setAdProductDesc(e.target.value)}
         />
-        </label>
+      </label>
 
       <label className='floating-label my-4'>
         <span>Generated Ad message</span>

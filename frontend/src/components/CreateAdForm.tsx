@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 interface CreateAdFormProps {
   channels: string;
   adText: string;
-  setError: React.Dispatch<React.SetStateAction<string>>;
+  setError: (error: string) => void;
 }
 
 export const CreateAdForm: React.FC<CreateAdFormProps> = ({
