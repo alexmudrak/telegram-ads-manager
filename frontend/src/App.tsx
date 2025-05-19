@@ -3,6 +3,13 @@ import { CreateAdForm } from './components/CreateAdForm';
 import { SelectChannels } from './components/SelectChannels';
 import { loadFromStorage, saveToStorage } from './utils/storage';
 import { useEffect, useState } from 'react';
+import { TriangleAlertIcon, Info, CircleX, CircleCheck } from 'lucide-react';
+
+interface ToastState {
+  show: boolean;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+}
 
 const App = () => {
   const [channels, setChannels] = useState<string>(() =>
@@ -10,6 +17,36 @@ const App = () => {
   );
   const [generatedAdMeddsge, setGeneratedAdMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [toast, setToast] = useState<ToastState>({
+    show: false,
+    message: '',
+    type: 'info',
+  });
+
+  const showToast = (
+    message: string,
+    type: ToastState['type'] = 'info',
+    duration: number = 3000,
+  ) => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast({ show: false, message: '', type: 'info' });
+    }, duration);
+  };
+
+  const getToastClasses = (type: ToastState['type']) => {
+    switch (type) {
+      case 'success':
+        return 'alert-success';
+      case 'error':
+        return 'alert-error';
+      case 'warning':
+        return 'alert-warning';
+      case 'info':
+      default:
+        return 'alert-info';
+    }
+  };
 
   useEffect(() => {
     saveToStorage('channels', channels);
@@ -21,7 +58,30 @@ const App = () => {
         Telegram Ads Manager
       </h1>
 
-      {error && <p className='text-red-500'>{error}</p>}
+      {error && <p className='text-red-500 bg-base-500'>{error}</p>}
+
+      {toast.show && (
+        <div className={`toast toast-top toast-center min-w-max z-50`}>
+          <div className={`alert ${getToastClasses(toast.type)} shadow-lg`}>
+            <div>
+              {toast.type === 'success' && (
+                <CircleCheck size={16} />
+              )}
+              {toast.type === 'error' && (
+                <CircleX size={16} />
+              )}
+              {toast.type === 'warning' && (
+                <TriangleAlertIcon size={16} />
+              )}
+              {toast.type === 'info' && (
+                <Info size={16} />
+              )}
+
+              <span dangerouslySetInnerHTML={{ __html: toast.message }} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <SelectChannels
         channels={channels}
@@ -39,7 +99,7 @@ const App = () => {
       <CreateAdForm
         channels={channels}
         adText={generatedAdMeddsge}
-        setError={setError}
+        showToast={showToast}
       />
     </div>
   );

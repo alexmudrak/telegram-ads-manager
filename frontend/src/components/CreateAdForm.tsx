@@ -5,13 +5,16 @@ import { useCallback, useEffect, useState } from 'react';
 interface CreateAdFormProps {
   channels: string;
   adText: string;
-  setError: (error: string) => void;
+  showToast: (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning',
+  ) => void;
 }
 
 export const CreateAdForm: React.FC<CreateAdFormProps> = ({
   channels,
   adText,
-  setError,
+  showToast,
 }) => {
   const [promoteUrl, setPromoteUrl] = useState<string>(() =>
     loadFromStorage('promoteUrl', ''),
@@ -33,7 +36,6 @@ export const CreateAdForm: React.FC<CreateAdFormProps> = ({
   );
 
   const sendAd = useCallback(async () => {
-    setError('');
     try {
       console.log(adText);
       await api.createAd({
@@ -48,9 +50,22 @@ export const CreateAdForm: React.FC<CreateAdFormProps> = ({
         channels: channels.split(',').map((c) => c.trim()),
         method: method,
       });
+      if (method === 'draft') {
+        showToast(
+          'The ad has been saved as a draft. <a href="https://ads.telegram.org/account/ad/new" target="_blank" rel="noopener noreferrer">Click here to review it</a>.',
+          'warning',
+        );
+      } else {
+        showToast(
+          'The ad has been submitted for moderation. <a href="https://ads.telegram.org/account" target="_blank" rel="noopener noreferrer">Check the status here</a>.',
+          'success',
+        );
+      }
     } catch (error) {
-      console.error('Error creating Ad:', error);
-      setError((error as Error).message);
+      showToast(
+        `Failed to create the ad: ${(error as Error).message}`,
+        'error',
+      );
     }
   }, [
     adText,
@@ -63,7 +78,7 @@ export const CreateAdForm: React.FC<CreateAdFormProps> = ({
     channels,
     targetType,
     method,
-    setError,
+    showToast,
   ]);
 
   useEffect(() => {
