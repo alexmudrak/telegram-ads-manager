@@ -3,37 +3,42 @@ import { loadFromStorage, saveToStorage } from '../utils/storage';
 import { useCallback, useEffect, useState } from 'react';
 
 interface AdMessageGeneratorProps {
-  channels: string;
+  channels: string[];
   generatedAdMessage: string;
   setGeneratedAdMessage: (message: string) => void;
-  setError: (error: string) => void;
+  showToast: (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning',
+  ) => void;
 }
 
 export const AdMessageGenerator: React.FC<AdMessageGeneratorProps> = ({
   channels,
   generatedAdMessage,
   setGeneratedAdMessage,
-  setError,
+  showToast,
 }) => {
   const [adProductDesc, setAdProductDesc] = useState<string>(() =>
     loadFromStorage('ad_product_desc', ''),
   );
 
   const generateAdMessage = useCallback(async () => {
-    if (!channels.trim() || !adProductDesc.trim()) {
-      setError('Please fill all field');
+    if (channels.length < 1 || !adProductDesc.trim()) {
+      showToast('Please fill all field', 'error');
       return;
     }
 
     try {
-      const channelNames = channels.split(',').map((c) => c.trim());
+      const channelNames = channels;
       const result = await api.generateAdMessage(channelNames, adProductDesc);
       setGeneratedAdMessage(result.ad_message);
     } catch (error) {
-      console.error('Error generating ad message:', error);
-      setError((error as Error).message);
+      showToast(
+        `Error generating ad message: ${(error as Error).message}`,
+        'error',
+      );
     }
-  }, [channels, adProductDesc, setError, setGeneratedAdMessage]);
+  }, [channels, adProductDesc, showToast, setGeneratedAdMessage]);
 
   useEffect(() => {
     saveToStorage('ad_product_desc', adProductDesc);

@@ -3,17 +3,21 @@ import { Channel } from '../types/types';
 import { loadFromStorage } from '../utils/storage';
 import Channels from './Channels';
 import { Modal } from './Modal';
+import { SelectChannelsTextarea } from './SelectChannelsTextarea';
 import { useCallback, useState } from 'react';
 
 interface SelectChannelsProps {
-  channels: string;
-  setChannels: (channel: string) => void;
-  setError: (error: string) => void;
+  channels: string[];
+  setChannels: (channel: string[]) => void;
+  showToast: (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning',
+  ) => void;
 }
 export const SelectChannels: React.FC<SelectChannelsProps> = ({
   channels,
   setChannels,
-  setError,
+  showToast,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [channelsList, setChannelsList] = useState<Channel[]>([]);
@@ -24,38 +28,31 @@ export const SelectChannels: React.FC<SelectChannelsProps> = ({
   }, []);
 
   const fetchSimilarChannels = useCallback(async () => {
-    if (!channels.trim()) {
-      setError('Please fill all fields');
+    if (!channels) {
+      showToast('Please fill all fields', 'error');
       return;
     }
 
     try {
-      setError('');
       setChannelsList([]);
 
-      const channelNames = channels.split(',').map((c) => c.trim());
+      const channelNames = channels;
       const data = await api.fetchSimilarChannels(channelNames);
       setChannelsList(data);
       setIsModalOpen(true);
     } catch (error) {
-      console.error('Error fetching similar channels:', error);
-      setError((error as Error).message);
+      showToast(
+        `Error fetching similar channels: ${(error as Error).message}`,
+        'error',
+      );
     }
-  }, [channels, setError]);
+  }, [channels, showToast]);
 
   return (
     <div className='grid grid-cols-1 gap-4 mb-6'>
       <h2 className='text-xl font-semibold'>1. Select Channels</h2>
 
-      <label className='floating-label'>
-        <span>Channels to Ad</span>
-        <textarea
-          className='textarea w-full'
-          placeholder='Channels to Ad'
-          value={channels}
-          onChange={(e) => setChannels(e.target.value)}
-        />
-      </label>
+      <SelectChannelsTextarea channels={channels} setChannels={setChannels} />
 
       <div className='flex gap-4'>
         <button
@@ -76,11 +73,13 @@ export const SelectChannels: React.FC<SelectChannelsProps> = ({
       <Modal
         isOpen={isModalOpen}
         onClose={() => {
-          setChannels(loadFromStorage('channels', ''));
+          setChannels(loadFromStorage('channels', []));
           setIsModalOpen(false);
         }}
       >
         <Channels
+          channels={channels}
+          setChannels={setChannels}
           channelsList={channelsList.length > 0 ? channelsList : undefined}
           isFilter={channelsList.length > 0 ? false : true}
         />

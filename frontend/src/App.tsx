@@ -12,11 +12,10 @@ interface ToastState {
 }
 
 const App = () => {
-  const [channels, setChannels] = useState<string>(() =>
-    loadFromStorage('channels', ''),
+  const [channels, setChannels] = useState<string[]>(() =>
+    loadFromStorage('channels', []),
   );
   const [generatedAdMeddsge, setGeneratedAdMessage] = useState<string>('');
-  const [error, setError] = useState<string>('');
   const [toast, setToast] = useState<ToastState>({
     show: false,
     message: '',
@@ -58,8 +57,6 @@ const App = () => {
         Telegram Ads Manager
       </h1>
 
-      {error && <p className='text-red-500 bg-base-500'>{error}</p>}
-
       {toast.show && (
         <div className={`toast toast-top toast-center min-w-max z-50`}>
           <div className={`alert ${getToastClasses(toast.type)} shadow-lg`}>
@@ -86,14 +83,14 @@ const App = () => {
       <SelectChannels
         channels={channels}
         setChannels={setChannels}
-        setError={setError}
+        showToast={showToast}
       />
 
       <AdMessageGenerator
         channels={channels}
         generatedAdMessage={generatedAdMeddsge}
         setGeneratedAdMessage={setGeneratedAdMessage}
-        setError={setError}
+        showToast={showToast}
       />
 
       <CreateAdForm

@@ -5,24 +5,25 @@ import { FloatingTextarea } from '../components/FloatingTextarea';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
 import { Channel } from '../types/types';
-import { loadFromStorage, saveToStorage } from '../utils/storage';
+import { SelectChannelsTextarea } from './SelectChannelsTextarea';
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react';
 
 interface ChannelsProps {
+  channels: string[];
+  setChannels: (channel: string[]) => void;
   channelsList?: Channel[];
   isFilter?: boolean;
 }
 
 const Channels: React.FC<ChannelsProps> = ({
+  channels,
+  setChannels,
   channelsList: propChannelsList,
   isFilter: propIsFilter,
 }) => {
   const [error, setError] = useState<string>('');
   const [isDataLoading, setIsDataLoading] = useState<boolean>(
     propChannelsList ? true : false,
-  );
-  const [channels, setChannels] = useState<string>(() =>
-    loadFromStorage('channels', ''),
   );
   const [categories, setCategories] = useState<string[]>([]);
   const [geos, setGeos] = useState<string[]>([]);
@@ -32,7 +33,7 @@ const Channels: React.FC<ChannelsProps> = ({
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [filterGeo, setFilterGeo] = useState<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLDivElement>(null);
   const { isIntersecting } = useIntersectionObserver(
     textareaRef as RefObject<Element>,
   );
@@ -109,20 +110,19 @@ const Channels: React.FC<ChannelsProps> = ({
     }
   }, []);
 
-  const addChannelUsername = useCallback((username: string) => {
-    setChannels((prev) => (prev ? `${prev}, ${username}` : username));
-  }, []);
+  const addChannelUsername = useCallback(
+    (username: string) => {
+      if (!channels.includes(username)) {
+        setChannels([...channels, username]);
+      }
+    },
+    [channels, setChannels],
+  );
 
   const addAllUsernames = useCallback(() => {
-    const usernames = channelsList
-      .map((channel) => channel.username)
-      .join(', ');
+    const usernames = channelsList.map((channel) => channel.username);
     setChannels(usernames);
-  }, [channelsList]);
-
-  useEffect(() => {
-    saveToStorage('channels', channels);
-  }, [channels]);
+  }, [channelsList, setChannels]);
 
   useEffect(() => {
     const initializeData = async () => {
@@ -152,23 +152,16 @@ const Channels: React.FC<ChannelsProps> = ({
 
       {error && <p className='text-red-500'>{error}</p>}
 
-      <label className='floating-label my-4'>
-        <span>Channels to Ad</span>
-        <textarea
-          ref={textareaRef}
-          className='textarea w-full'
-          placeholder='Channels to Ad'
-          value={channels}
-          onChange={(e) => setChannels(e.target.value)}
-        />
-      </label>
+      <div ref={textareaRef}>
+        <SelectChannelsTextarea channels={channels} setChannels={setChannels} />
+      </div>
 
       {!isIntersecting && (
         <FloatingTextarea
           value={channels}
           onChange={setChannels}
           onClear={() => {
-            setChannels('');
+            setChannels([]);
           }}
         />
       )}

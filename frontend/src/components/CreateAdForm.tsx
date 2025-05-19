@@ -3,7 +3,7 @@ import { loadFromStorage, saveToStorage } from '../utils/storage';
 import { useCallback, useEffect, useState } from 'react';
 
 interface CreateAdFormProps {
-  channels: string;
+  channels: string[];
   adText: string;
   showToast: (
     message: string,
@@ -47,7 +47,7 @@ export const CreateAdForm: React.FC<CreateAdFormProps> = ({
         daily_budget: dailyBudget,
         active: active,
         target_type: targetType,
-        channels: channels.split(',').map((c) => c.trim()),
+        channels: channels,
         method: method,
       });
       if (method === 'draft') {
