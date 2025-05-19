@@ -443,7 +443,11 @@ impl TelegramService {
         Ok(result)
     }
 
-    pub async fn create_ad(&self, ad_data: CreateAdRequest) -> Result<String, String> {
+    pub async fn create_ad(
+        &self,
+        ad_data: CreateAdRequest,
+        channels_ids: Vec<i64>,
+    ) -> Result<String, String> {
         let hash = self.hash.as_ref().ok_or("Missing hash")?;
         let stel_ssid = self.stel_ssid.as_ref().ok_or("Missing stel_ssid")?;
         let stel_token = self.stel_token.as_ref().ok_or("Missing stel_token")?;
@@ -475,8 +479,7 @@ impl TelegramService {
         let daily_budget = ad_data.daily_budget.to_string();
         let active = if ad_data.active { "1" } else { "0" };
         let target_type = ad_data.target_type.as_str();
-        let channels = ad_data
-            .channels
+        let channels = channels_ids
             .iter()
             .map(|id| id.to_string())
             .collect::<Vec<String>>()
