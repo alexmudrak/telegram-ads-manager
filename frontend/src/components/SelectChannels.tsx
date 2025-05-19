@@ -82,6 +82,7 @@ export const SelectChannels: React.FC<SelectChannelsProps> = ({
           setChannels={setChannels}
           channelsList={channelsList.length > 0 ? channelsList : undefined}
           isFilter={channelsList.length > 0 ? false : true}
+          showToast={showToast}
         />
       </Modal>
     </div>

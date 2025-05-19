@@ -13,6 +13,10 @@ interface ChannelsProps {
   setChannels: (channel: string[]) => void;
   channelsList?: Channel[];
   isFilter?: boolean;
+  showToast: (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning',
+  ) => void;
 }
 
 const Channels: React.FC<ChannelsProps> = ({
@@ -20,8 +24,8 @@ const Channels: React.FC<ChannelsProps> = ({
   setChannels,
   channelsList: propChannelsList,
   isFilter: propIsFilter,
+  showToast,
 }) => {
-  const [error, setError] = useState<string>('');
   const [isDataLoading, setIsDataLoading] = useState<boolean>(
     propChannelsList ? true : false,
   );
@@ -41,7 +45,6 @@ const Channels: React.FC<ChannelsProps> = ({
   const fetchChannelsByFilter = useCallback(async () => {
     try {
       setIsDataLoading(false);
-      setError('');
       setChannelsList([]);
 
       const data = await api.fetchChannelsByFilter(filterCategory, filterGeo);
@@ -49,9 +52,12 @@ const Channels: React.FC<ChannelsProps> = ({
       setIsDataLoading(true);
     } catch (error) {
       console.error('Error fetching channels by filter:', error);
-      setError((error as Error).message);
+      showToast(
+        `Error fetching channels by filter: ${(error as Error).message}`,
+        'error',
+      );
     }
-  }, [filterCategory, filterGeo]);
+  }, [filterCategory, filterGeo, showToast]);
 
   const handleCategoryClick = useCallback((category: string) => {
     setFilterCategory((prev) => (prev === category ? null : category));
@@ -95,20 +101,25 @@ const Channels: React.FC<ChannelsProps> = ({
     [],
   );
 
-  const updateChannelData = useCallback(async (id: number) => {
-    try {
-      setIsDataLoading(false);
-      const updatedChannel = await api.fetchChannelData(id);
+  const updateChannelData = useCallback(
+    async (id: number) => {
+      try {
+        setIsDataLoading(false);
+        const updatedChannel = await api.fetchChannelData(id);
 
-      setChannelsList((prev) =>
-        prev.map((channel) => (channel.id === id ? updatedChannel : channel)),
-      );
-      setIsDataLoading(true);
-    } catch (error) {
-      console.error('Failed to update channel:', error);
-      setError((error as Error).message);
-    }
-  }, []);
+        setChannelsList((prev) =>
+          prev.map((channel) => (channel.id === id ? updatedChannel : channel)),
+        );
+        setIsDataLoading(true);
+      } catch (error) {
+        showToast(
+          `Failed to update channel: ${(error as Error).message}`,
+          'error',
+        );
+      }
+    },
+    [showToast],
+  );
 
   const addChannelUsername = useCallback(
     (username: string) => {
@@ -139,18 +150,15 @@ const Channels: React.FC<ChannelsProps> = ({
           fetchChannelsByFilter();
         }
       } catch (error) {
-        console.log('Error initializing data:', error);
-        setError('Initializing Error');
+        showToast(`Initializing Error: ${(error as Error).message}`, 'error');
       }
     };
     initializeData();
-  }, [fetchChannelsByFilter, propChannelsList]);
+  }, [fetchChannelsByFilter, propChannelsList, showToast]);
 
   return (
     <div className='min-h-screen bg-base-200 p-10'>
       <h1 className='text-3xl font-bold mb-6 text-center'>Telegram Channels</h1>
-
-      {error && <p className='text-red-500'>{error}</p>}
 
       <div ref={textareaRef}>
         <SelectChannelsTextarea channels={channels} setChannels={setChannels} />

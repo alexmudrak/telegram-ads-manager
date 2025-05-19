@@ -58,7 +58,7 @@ const App = () => {
       </h1>
 
       {toast.show && (
-        <div className={`toast toast-top toast-center min-w-max z-50`}>
+        <div className={`toast toast-top toast-center min-w-max z-999`}>
           <div className={`alert ${getToastClasses(toast.type)} shadow-lg`}>
             <div>
               {toast.type === 'success' && (
